@@ -2,8 +2,8 @@ import path from "node:path";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import pino from "pino";
-import { db } from "../database/connection.js";
-import { Logs } from "../database/schema.js";
+import { bronze_db } from "../database/bronze_connection.js";
+import { Logs } from "../database/bronze_schema.js";
 
 type Log = typeof Logs.$inferInsert;
 
@@ -23,10 +23,10 @@ const db_stream = new Writable({
         try {
             const logObj = JSON.parse(chunk.toString());
 
-            if (logObj.level) {
-                await db.insert(Logs).values({
+            if (logObj.level && logObj.level >= 40) {
+                await bronze_db.insert(Logs).values({
                     created_at: new Date(logObj.time) ?? new Date(),
-                    category: logObj.level ?? 'Indefinido',
+                    category: logObj.level ? parseLogLevel(logObj.level) : 'Indefinido',
                     module: logObj.module ?? 'Indefinido',
                     context: logObj.context ?? 'Indefinido',
                     data: logObj.data ?? 'Indefinido',
@@ -59,3 +59,13 @@ const base_logger = pino({
         { stream: pino_stream },
     ])
 );
+
+function parseLogLevel(level: number): string {
+    if (level <= 10) return 'Trace';
+    if (level <= 20) return 'Debug';
+    if (level <= 30) return 'Info';
+    if (level <= 40) return 'Warn';
+    if (level <= 50) return 'Error';
+    if (level <= 60) return 'Fatal'
+    else return 'Desconhecido';
+}

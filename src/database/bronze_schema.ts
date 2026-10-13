@@ -9,3 +9,15 @@ export const Logs = mysqlTable('logs', {
     data: text('data').default(''),
     created_at: timestamp('created_at').notNull(),
 })
+
+export const AuxilioBrasil = mysqlTable('auxilio_brasil', {
+    mesCompetencia: text(),
+    mesReferencia: text(),
+    uf: text(),
+    codigoMunicipioSiafi: text(),
+    nomeMunicipio: text(),
+    cpfFavorecido: text(),
+    nisFavorecido: text(),
+    nomeFavorecido: text(),
+    valorParcela: text(),
+})
