@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { 
@@ -9,7 +10,7 @@ import {
     DespesasLiquidacao, 
     DespesasPagamento 
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -17,7 +18,77 @@ const BATCH_SIZE = 2000;
 async function persistEmpenho(data: (typeof DespesasEmpenho.$inferInsert)[]) {
     const log = logger.forMethod('persistEmpenho');
     try {
-        await bronze_db.insert(DespesasEmpenho).values(data);
+        await bronze_db.insert(DespesasEmpenho).values(data).onDuplicateKeyUpdate({
+            set: {
+                idEmpenho: sql`values(${DespesasEmpenho.idEmpenho})`,
+                codigoEmpenho: sql`values(${DespesasEmpenho.codigoEmpenho})`,
+                codigoEmpenhoResumido: sql`values(${DespesasEmpenho.codigoEmpenhoResumido})`,
+                dataEmissao: sql`values(${DespesasEmpenho.dataEmissao})`,
+                codigoTipoDocumento: sql`values(${DespesasEmpenho.codigoTipoDocumento})`,
+                tipoDocumento: sql`values(${DespesasEmpenho.tipoDocumento})`,
+                tipoEmpenho: sql`values(${DespesasEmpenho.tipoEmpenho})`,
+                especieEmpenho: sql`values(${DespesasEmpenho.especieEmpenho})`,
+                codigoOrgaoSuperior: sql`values(${DespesasEmpenho.codigoOrgaoSuperior})`,
+                orgaoSuperior: sql`values(${DespesasEmpenho.orgaoSuperior})`,
+                codigoOrgao: sql`values(${DespesasEmpenho.codigoOrgao})`,
+                orgao: sql`values(${DespesasEmpenho.orgao})`,
+                codigoUnidadeGestora: sql`values(${DespesasEmpenho.codigoUnidadeGestora})`,
+                unidadeGestora: sql`values(${DespesasEmpenho.unidadeGestora})`,
+                codigoGestao: sql`values(${DespesasEmpenho.codigoGestao})`,
+                gestao: sql`values(${DespesasEmpenho.gestao})`,
+                codigoFavorecido: sql`values(${DespesasEmpenho.codigoFavorecido})`,
+                favorecido: sql`values(${DespesasEmpenho.favorecido})`,
+                observacao: sql`values(${DespesasEmpenho.observacao})`,
+                codigoEsferaOrcamentaria: sql`values(${DespesasEmpenho.codigoEsferaOrcamentaria})`,
+                esferaOrcamentaria: sql`values(${DespesasEmpenho.esferaOrcamentaria})`,
+                codigoTipoCredito: sql`values(${DespesasEmpenho.codigoTipoCredito})`,
+                tipoCredito: sql`values(${DespesasEmpenho.tipoCredito})`,
+                codigoGrupoFonteRecurso: sql`values(${DespesasEmpenho.codigoGrupoFonteRecurso})`,
+                grupoFonteRecurso: sql`values(${DespesasEmpenho.grupoFonteRecurso})`,
+                codigoFonteRecurso: sql`values(${DespesasEmpenho.codigoFonteRecurso})`,
+                fonteRecurso: sql`values(${DespesasEmpenho.fonteRecurso})`,
+                codigoUnidadeOrcamentaria: sql`values(${DespesasEmpenho.codigoUnidadeOrcamentaria})`,
+                unidadeOrcamentaria: sql`values(${DespesasEmpenho.unidadeOrcamentaria})`,
+                codigoFuncao: sql`values(${DespesasEmpenho.codigoFuncao})`,
+                funcao: sql`values(${DespesasEmpenho.funcao})`,
+                codigoSubfuncao: sql`values(${DespesasEmpenho.codigoSubfuncao})`,
+                subfuncao: sql`values(${DespesasEmpenho.subfuncao})`,
+                codigoPrograma: sql`values(${DespesasEmpenho.codigoPrograma})`,
+                programa: sql`values(${DespesasEmpenho.programa})`,
+                codigoAcao: sql`values(${DespesasEmpenho.codigoAcao})`,
+                acao: sql`values(${DespesasEmpenho.acao})`,
+                linguagemCidada: sql`values(${DespesasEmpenho.linguagemCidada})`,
+                codigoSubtituloLocalizador: sql`values(${DespesasEmpenho.codigoSubtituloLocalizador})`,
+                subtituloLocalizador: sql`values(${DespesasEmpenho.subtituloLocalizador})`,
+                codigoPlanoOrcamentario: sql`values(${DespesasEmpenho.codigoPlanoOrcamentario})`,
+                planoOrcamentario: sql`values(${DespesasEmpenho.planoOrcamentario})`,
+                codigoProgramaGoverno: sql`values(${DespesasEmpenho.codigoProgramaGoverno})`,
+                nomeProgramaGoverno: sql`values(${DespesasEmpenho.nomeProgramaGoverno})`,
+                autorEmenda: sql`values(${DespesasEmpenho.autorEmenda})`,
+                codigoCategoriaDespesa: sql`values(${DespesasEmpenho.codigoCategoriaDespesa})`,
+                categoriaDespesa: sql`values(${DespesasEmpenho.categoriaDespesa})`,
+                codigoGrupoDespesa: sql`values(${DespesasEmpenho.codigoGrupoDespesa})`,
+                grupoDespesa: sql`values(${DespesasEmpenho.grupoDespesa})`,
+                codigoModalidadeAplicacao: sql`values(${DespesasEmpenho.codigoModalidadeAplicacao})`,
+                modalidadeAplicacao: sql`values(${DespesasEmpenho.modalidadeAplicacao})`,
+                codigoElementoDespesa: sql`values(${DespesasEmpenho.codigoElementoDespesa})`,
+                elementoDespesa: sql`values(${DespesasEmpenho.elementoDespesa})`,
+                processo: sql`values(${DespesasEmpenho.processo})`,
+                modalidadeLicitacao: sql`values(${DespesasEmpenho.modalidadeLicitacao})`,
+                inciso: sql`values(${DespesasEmpenho.inciso})`,
+                amparo: sql`values(${DespesasEmpenho.amparo})`,
+                referenciaDispensaInexigibilidade: sql`values(${DespesasEmpenho.referenciaDispensaInexigibilidade})`,
+                codigoConvenio: sql`values(${DespesasEmpenho.codigoConvenio})`,
+                contratoRepasseTermoParceriaOutros: sql`values(${DespesasEmpenho.contratoRepasseTermoParceriaOutros})`,
+                valorOriginalEmpenho: sql`values(${DespesasEmpenho.valorOriginalEmpenho})`,
+                valorEmpenhoConvertido: sql`values(${DespesasEmpenho.valorEmpenhoConvertido})`,
+                valorUtilizadoConversao: sql`values(${DespesasEmpenho.valorUtilizadoConversao})`,
+                exercicioReferencia: sql`values(${DespesasEmpenho.exercicioReferencia})`,
+                mesReferencia: sql`values(${DespesasEmpenho.mesReferencia})`,
+                diaReferencia: sql`values(${DespesasEmpenho.diaReferencia})`,
+                dadosAdicionais: sql`values(${DespesasEmpenho.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Despesas Empenho`);
         throw error;
@@ -27,7 +98,42 @@ async function persistEmpenho(data: (typeof DespesasEmpenho.$inferInsert)[]) {
 async function persistLiquidacao(data: (typeof DespesasLiquidacao.$inferInsert)[]) {
     const log = logger.forMethod('persistLiquidacao');
     try {
-        await bronze_db.insert(DespesasLiquidacao).values(data);
+        await bronze_db.insert(DespesasLiquidacao).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoLiquidacao: sql`values(${DespesasLiquidacao.codigoLiquidacao})`,
+                codigoLiquidacaoResumido: sql`values(${DespesasLiquidacao.codigoLiquidacaoResumido})`,
+                dataEmissao: sql`values(${DespesasLiquidacao.dataEmissao})`,
+                codigoTipoDocumento: sql`values(${DespesasLiquidacao.codigoTipoDocumento})`,
+                tipoDocumento: sql`values(${DespesasLiquidacao.tipoDocumento})`,
+                codigoOrgaoSuperior: sql`values(${DespesasLiquidacao.codigoOrgaoSuperior})`,
+                orgaoSuperior: sql`values(${DespesasLiquidacao.orgaoSuperior})`,
+                codigoOrgao: sql`values(${DespesasLiquidacao.codigoOrgao})`,
+                orgao: sql`values(${DespesasLiquidacao.orgao})`,
+                codigoUnidadeGestora: sql`values(${DespesasLiquidacao.codigoUnidadeGestora})`,
+                unidadeGestora: sql`values(${DespesasLiquidacao.unidadeGestora})`,
+                codigoGestao: sql`values(${DespesasLiquidacao.codigoGestao})`,
+                gestao: sql`values(${DespesasLiquidacao.gestao})`,
+                codigoFavorecido: sql`values(${DespesasLiquidacao.codigoFavorecido})`,
+                favorecido: sql`values(${DespesasLiquidacao.favorecido})`,
+                observacao: sql`values(${DespesasLiquidacao.observacao})`,
+                codigoCategoriaDespesa: sql`values(${DespesasLiquidacao.codigoCategoriaDespesa})`,
+                categoriaDespesa: sql`values(${DespesasLiquidacao.categoriaDespesa})`,
+                codigoGrupoDespesa: sql`values(${DespesasLiquidacao.codigoGrupoDespesa})`,
+                grupoDespesa: sql`values(${DespesasLiquidacao.grupoDespesa})`,
+                codigoModalidadeAplicacao: sql`values(${DespesasLiquidacao.codigoModalidadeAplicacao})`,
+                modalidadeAplicacao: sql`values(${DespesasLiquidacao.modalidadeAplicacao})`,
+                codigoElementoDespesa: sql`values(${DespesasLiquidacao.codigoElementoDespesa})`,
+                elementoDespesa: sql`values(${DespesasLiquidacao.elementoDespesa})`,
+                codigoPlanoOrcamentario: sql`values(${DespesasLiquidacao.codigoPlanoOrcamentario})`,
+                planoOrcamentario: sql`values(${DespesasLiquidacao.planoOrcamentario})`,
+                codigoProgramaGoverno: sql`values(${DespesasLiquidacao.codigoProgramaGoverno})`,
+                nomeProgramaGoverno: sql`values(${DespesasLiquidacao.nomeProgramaGoverno})`,
+                exercicioReferencia: sql`values(${DespesasLiquidacao.exercicioReferencia})`,
+                mesReferencia: sql`values(${DespesasLiquidacao.mesReferencia})`,
+                diaReferencia: sql`values(${DespesasLiquidacao.diaReferencia})`,
+                dadosAdicionais: sql`values(${DespesasLiquidacao.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Despesas Liquidação`);
         throw error;
@@ -37,7 +143,48 @@ async function persistLiquidacao(data: (typeof DespesasLiquidacao.$inferInsert)[
 async function persistPagamento(data: (typeof DespesasPagamento.$inferInsert)[]) {
     const log = logger.forMethod('persistPagamento');
     try {
-        await bronze_db.insert(DespesasPagamento).values(data);
+        await bronze_db.insert(DespesasPagamento).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoPagamento: sql`values(${DespesasPagamento.codigoPagamento})`,
+                codigoPagamentoResumido: sql`values(${DespesasPagamento.codigoPagamentoResumido})`,
+                dataEmissao: sql`values(${DespesasPagamento.dataEmissao})`,
+                codigoTipoDocumento: sql`values(${DespesasPagamento.codigoTipoDocumento})`,
+                tipoDocumento: sql`values(${DespesasPagamento.tipoDocumento})`,
+                tipoOb: sql`values(${DespesasPagamento.tipoOb})`,
+                extraorcamentario: sql`values(${DespesasPagamento.extraorcamentario})`,
+                codigoOrgaoSuperior: sql`values(${DespesasPagamento.codigoOrgaoSuperior})`,
+                orgaoSuperior: sql`values(${DespesasPagamento.orgaoSuperior})`,
+                codigoOrgao: sql`values(${DespesasPagamento.codigoOrgao})`,
+                orgao: sql`values(${DespesasPagamento.orgao})`,
+                codigoUnidadeGestora: sql`values(${DespesasPagamento.codigoUnidadeGestora})`,
+                unidadeGestora: sql`values(${DespesasPagamento.unidadeGestora})`,
+                codigoGestao: sql`values(${DespesasPagamento.codigoGestao})`,
+                gestao: sql`values(${DespesasPagamento.gestao})`,
+                codigoFavorecido: sql`values(${DespesasPagamento.codigoFavorecido})`,
+                favorecido: sql`values(${DespesasPagamento.favorecido})`,
+                observacao: sql`values(${DespesasPagamento.observacao})`,
+                processo: sql`values(${DespesasPagamento.processo})`,
+                codigoCategoriaDespesa: sql`values(${DespesasPagamento.codigoCategoriaDespesa})`,
+                categoriaDespesa: sql`values(${DespesasPagamento.categoriaDespesa})`,
+                codigoGrupoDespesa: sql`values(${DespesasPagamento.codigoGrupoDespesa})`,
+                grupoDespesa: sql`values(${DespesasPagamento.grupoDespesa})`,
+                codigoModalidadeAplicacao: sql`values(${DespesasPagamento.codigoModalidadeAplicacao})`,
+                modalidadeAplicacao: sql`values(${DespesasPagamento.modalidadeAplicacao})`,
+                codigoElementoDespesa: sql`values(${DespesasPagamento.codigoElementoDespesa})`,
+                elementoDespesa: sql`values(${DespesasPagamento.elementoDespesa})`,
+                codigoPlanoOrcamentario: sql`values(${DespesasPagamento.codigoPlanoOrcamentario})`,
+                planoOrcamentario: sql`values(${DespesasPagamento.planoOrcamentario})`,
+                codigoProgramaGoverno: sql`values(${DespesasPagamento.codigoProgramaGoverno})`,
+                nomeProgramaGoverno: sql`values(${DespesasPagamento.nomeProgramaGoverno})`,
+                valorOriginalPagamento: sql`values(${DespesasPagamento.valorOriginalPagamento})`,
+                valorPagamentoConvertido: sql`values(${DespesasPagamento.valorPagamentoConvertido})`,
+                valorUtilizadoConversao: sql`values(${DespesasPagamento.valorUtilizadoConversao})`,
+                exercicioReferencia: sql`values(${DespesasPagamento.exercicioReferencia})`,
+                mesReferencia: sql`values(${DespesasPagamento.mesReferencia})`,
+                diaReferencia: sql`values(${DespesasPagamento.diaReferencia})`,
+                dadosAdicionais: sql`values(${DespesasPagamento.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Despesas Pagamento`);
         throw error;
@@ -76,7 +223,7 @@ function mapCommonHeaders(h: string): string | null {
     return null;
 }
 
-async function processEmpenhoStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processEmpenhoStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processEmpenhoStream');
     let batch: (typeof DespesasEmpenho.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -130,7 +277,10 @@ async function processEmpenhoStream(stream: NodeJS.ReadableStream): Promise<numb
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistEmpenho(batch);
                 totalProcessed += batch.length;
@@ -150,7 +300,7 @@ async function processEmpenhoStream(stream: NodeJS.ReadableStream): Promise<numb
     }
 }
 
-async function processLiquidacaoStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processLiquidacaoStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processLiquidacaoStream');
     let batch: (typeof DespesasLiquidacao.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -171,7 +321,10 @@ async function processLiquidacaoStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistLiquidacao(batch);
                 totalProcessed += batch.length;
@@ -191,7 +344,7 @@ async function processLiquidacaoStream(stream: NodeJS.ReadableStream): Promise<n
     }
 }
 
-async function processPagamentoStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processPagamentoStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processPagamentoStream');
     let batch: (typeof DespesasPagamento.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -216,7 +369,10 @@ async function processPagamentoStream(stream: NodeJS.ReadableStream): Promise<nu
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistPagamento(batch);
                 totalProcessed += batch.length;
@@ -251,7 +407,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -284,11 +441,11 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             let rowsCount = 0;
                             
                             if (upperName.includes('_EMPENHO.CSV') && !upperName.includes('ITEM') && !upperName.includes('IMPACTADOS')) {
-                                rowsCount = await processEmpenhoStream(readStream);
+                                rowsCount = await processEmpenhoStream(readStream, metadata);
                             } else if (upperName.includes('_LIQUIDACAO.CSV') && !upperName.includes('IMPACTADOS')) {
-                                rowsCount = await processLiquidacaoStream(readStream);
+                                rowsCount = await processLiquidacaoStream(readStream, metadata);
                             } else if (upperName.includes('_PAGAMENTO.CSV') && !upperName.includes('IMPACTADOS') && !upperName.includes('FAVORECIDOS') && !upperName.includes('LISTA')) {
-                                rowsCount = await processPagamentoStream(readStream);
+                                rowsCount = await processPagamentoStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado por não ser o arquivo primário da etapa processada nesta sprint');
                                 readStream.resume(); 
