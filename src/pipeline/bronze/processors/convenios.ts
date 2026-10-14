@@ -9,7 +9,8 @@ import {
     Convenios,
     ConveniosOrdensBancarias
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { extractMetadataFromFileName, ReferenceMetadata, ZIP_FILES_DIRECTORY } from '../shared.js';
+import { sql } from 'drizzle-orm';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -17,7 +18,41 @@ const BATCH_SIZE = 2000;
 async function persistConvenios(data: (typeof Convenios.$inferInsert)[]) {
     const log = logger.forMethod('persistConvenios');
     try {
-        await bronze_db.insert(Convenios).values(data);
+        await bronze_db.insert(Convenios).values(data).onDuplicateKeyUpdate({
+            set: {
+                numeroConvenio: sql`values(${Convenios.numeroConvenio})`,
+                uf: sql`values(${Convenios.uf})`,
+                codigoSiafiMunicipio: sql`values(${Convenios.codigoSiafiMunicipio})`,
+                nomeMunicipio: sql`values(${Convenios.nomeMunicipio})`,
+                situacaoConvenio: sql`values(${Convenios.situacaoConvenio})`,
+                numeroOriginal: sql`values(${Convenios.numeroOriginal})`,
+                numeroProcessoConvenio: sql`values(${Convenios.numeroProcessoConvenio})`,
+                objetoConvenio: sql`values(${Convenios.objetoConvenio})`,
+                codigoOrgaoSuperior: sql`values(${Convenios.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${Convenios.nomeOrgaoSuperior})`,
+                codigoOrgaoConcedente: sql`values(${Convenios.codigoOrgaoConcedente})`,
+                nomeOrgaoConcedente: sql`values(${Convenios.nomeOrgaoConcedente})`,
+                codigoUgConcedente: sql`values(${Convenios.codigoUgConcedente})`,
+                nomeUgConcedente: sql`values(${Convenios.nomeUgConcedente})`,
+                codigoConvenente: sql`values(${Convenios.codigoConvenente})`,
+                tipoConvenente: sql`values(${Convenios.tipoConvenente})`,
+                nomeConvenente: sql`values(${Convenios.nomeConvenente})`,
+                tipoEnteConvenente: sql`values(${Convenios.tipoEnteConvenente})`,
+                tipoInstrumento: sql`values(${Convenios.tipoInstrumento})`,
+                valorConvenio: sql`values(${Convenios.valorConvenio})`,
+                valorLiberado: sql`values(${Convenios.valorLiberado})`,
+                dataPublicacao: sql`values(${Convenios.dataPublicacao})`,
+                dataInicioVigencia: sql`values(${Convenios.dataInicioVigencia})`,
+                dataFimVigencia: sql`values(${Convenios.dataFimVigencia})`,
+                valorContrapartida: sql`values(${Convenios.valorContrapartida})`,
+                dataUltimaLiberacao: sql`values(${Convenios.dataUltimaLiberacao})`,
+                valorUltimaLiberacao: sql`values(${Convenios.valorUltimaLiberacao})`,
+                exercicioReferencia: sql`values(${Convenios.exercicioReferencia})`,
+                mesReferencia: sql`values(${Convenios.mesReferencia})`,
+                diaReferencia: sql`values(${Convenios.diaReferencia})`,
+                dadosAdicionais: sql`values(${Convenios.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Convênios`);
         throw error;
@@ -27,14 +62,26 @@ async function persistConvenios(data: (typeof Convenios.$inferInsert)[]) {
 async function persistOrdensBancarias(data: (typeof ConveniosOrdensBancarias.$inferInsert)[]) {
     const log = logger.forMethod('persistOrdensBancarias');
     try {
-        await bronze_db.insert(ConveniosOrdensBancarias).values(data);
+        await bronze_db.insert(ConveniosOrdensBancarias).values(data).onDuplicateKeyUpdate({
+            set: {
+                numeroConvenio: sql`values(${ConveniosOrdensBancarias.numeroConvenio})`,
+                numeroOriginal: sql`values(${ConveniosOrdensBancarias.numeroOriginal})`,
+                dataEmissaoOb: sql`values(${ConveniosOrdensBancarias.dataEmissaoOb})`,
+                numeroOrdemBancaria: sql`values(${ConveniosOrdensBancarias.numeroOrdemBancaria})`,
+                valorLiberado: sql`values(${ConveniosOrdensBancarias.valorLiberado})`,
+                exercicioReferencia: sql`values(${ConveniosOrdensBancarias.exercicioReferencia})`,
+                mesReferencia: sql`values(${ConveniosOrdensBancarias.mesReferencia})`,
+                diaReferencia: sql`values(${ConveniosOrdensBancarias.diaReferencia})`,
+                dadosAdicionais: sql`values(${ConveniosOrdensBancarias.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Ordens Bancárias de Convênios`);
         throw error;
     }
 }
 
-async function processConveniosStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processConveniosStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processConveniosStream');
     let batch: (typeof Convenios.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -76,7 +123,10 @@ async function processConveniosStream(stream: NodeJS.ReadableStream): Promise<nu
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistConvenios(batch);
                 totalProcessed += batch.length;
@@ -96,7 +146,7 @@ async function processConveniosStream(stream: NodeJS.ReadableStream): Promise<nu
     }
 }
 
-async function processOrdensBancariasStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processOrdensBancariasStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processOrdensBancariasStream');
     let batch: (typeof ConveniosOrdensBancarias.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -116,7 +166,10 @@ async function processOrdensBancariasStream(stream: NodeJS.ReadableStream): Prom
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistOrdensBancarias(batch);
                 totalProcessed += batch.length;
@@ -151,7 +204,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -184,9 +238,9 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             let rowsCount = 0;
 
                             if (upperName.includes('ORDEM_BANCARIA') || upperName.includes('ORDENS_BANCARIAS') || upperName.includes('ORDEMBANCARIA') || upperName.includes('OB')) {
-                                rowsCount = await processOrdensBancariasStream(readStream);
+                                rowsCount = await processOrdensBancariasStream(readStream, metadata);
                             } else if (upperName.includes('CONVENIO')) {
-                                rowsCount = await processConveniosStream(readStream);
+                                rowsCount = await processConveniosStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV não processado (padrão de nome desconhecido)');
                                 readStream.resume();
