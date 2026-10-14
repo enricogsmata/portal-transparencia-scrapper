@@ -5,7 +5,8 @@ import csvParser from 'csv-parser';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { AuxilioBrasil } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { extractMetadataFromFileName, ReferenceMetadata, ZIP_FILES_DIRECTORY } from '../shared.js';
+import { sql } from 'drizzle-orm';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,16 +15,35 @@ type AuxilioBrasilRow = typeof AuxilioBrasil.$inferInsert;
 async function persistData(data: AuxilioBrasilRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(AuxilioBrasil).values(data);
+        await bronze_db
+            .insert(AuxilioBrasil)
+            .values(data)
+            .onDuplicateKeyUpdate({
+                set: {
+                    mesCompetencia: sql`values(${AuxilioBrasil.mesCompetencia})`,
+                    mesReferencia: sql`values(${AuxilioBrasil.mesReferencia})`,
+                    uf: sql`values(${AuxilioBrasil.uf})`,
+                    codigoMunicipioSiafi: sql`values(${AuxilioBrasil.codigoMunicipioSiafi})`,
+                    nomeMunicipio: sql`values(${AuxilioBrasil.nomeMunicipio})`,
+                    cpfFavorecido: sql`values(${AuxilioBrasil.cpfFavorecido})`,
+                    nisFavorecido: sql`values(${AuxilioBrasil.nisFavorecido})`,
+                    nomeFavorecido: sql`values(${AuxilioBrasil.nomeFavorecido})`,
+                    valorParcela: sql`values(${AuxilioBrasil.valorParcela})`,
+                    exercicioReferencia: sql`values(${AuxilioBrasil.exercicioReferencia})`,
+                },
+            });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(
+    stream: NodeJS.ReadableStream,
+    metadata: ReferenceMetadata
+): Promise<number> {
     const log = logger.forMethod('processCsvStream');
-    const BATCH_SIZE = 3000; // Lote seguro para o limite de variáveis do SQLite (32766)
+    const BATCH_SIZE = 3000;
     let batch: AuxilioBrasilRow[] = [];
     let totalProcessed = 0;
 
@@ -31,7 +51,6 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         const parser = stream.pipe(csvParser({
             separator: ';',
             mapHeaders: ({ header }) => {
-                // Utilizando substrings para contornar problemas de encoding (latin1/utf8) e acentuação
                 const h = header.toUpperCase();
                 if (h.includes('COMPET')) return 'mesCompetencia';
                 if (h.includes('REFER')) return 'mesReferencia';
@@ -47,7 +66,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -84,7 +106,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -113,7 +136,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

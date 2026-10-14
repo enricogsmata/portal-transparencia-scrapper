@@ -2,3 +2,4 @@
 node_modules
 src/files/*
 .temp_downloads
+src/database/out/*

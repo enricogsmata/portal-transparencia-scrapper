@@ -1,4 +1,4 @@
-import { timestamp, varchar, mysqlTable, serial, text } from "drizzle-orm/mysql-core";
+import { mysqlTable, serial, text, varchar, timestamp } from 'drizzle-orm/mysql-core';
 
 export const Logs = mysqlTable('logs', {
     id: serial('id'),
@@ -10,7 +10,16 @@ export const Logs = mysqlTable('logs', {
     created_at: timestamp('created_at').notNull(),
 })
 
+export const FileDownloadHistory = mysqlTable('file_download_history', {
+    id: serial('id').primaryKey(),
+    fileName: varchar('file_name', { length: 255 }).notNull().unique(),
+    moduleName: varchar('module_name', { length: 255 }).notNull(),
+    frequency: varchar('frequency', { length: 100 }).notNull(),
+    downloadedAt: timestamp('downloaded_at').notNull(),
+});
+
 export const AuxilioBrasil = mysqlTable('auxilio_brasil', {
+    id: serial('id').primaryKey(),
     mesCompetencia: text(),
     mesReferencia: text(),
     uf: text(),
@@ -20,9 +29,11 @@ export const AuxilioBrasil = mysqlTable('auxilio_brasil', {
     nisFavorecido: text(),
     nomeFavorecido: text(),
     valorParcela: text(),
-})
+    exercicioReferencia: text(),
+});
 
 export const AuxilioEmergencial = mysqlTable('auxilio_emergencial', {
+    id: serial('id').primaryKey(),
     mesDisponibilizacao: text(),
     uf: text(),
     codigoMunicipioIbge: text(),
@@ -37,18 +48,28 @@ export const AuxilioEmergencial = mysqlTable('auxilio_emergencial', {
     parcela: text(),
     observacao: text(),
     valorBeneficio: text(),
-})
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
+});
 
 export const AuxilioReconstrucao = mysqlTable('auxilio_reconstrucao', {
+    id: serial('id').primaryKey(),
     cpfFavorecido: text(),
     nomeFavorecido: text(),
     valor: text(),
     dataPagamento: text(),
     uf: text(),
     nomeMunicipio: text(),
-})
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
+});
 
 export const BolsaFamiliaPagamentos = mysqlTable('bolsa_familia_pagamentos', {
+    id: serial('id').primaryKey(),
     anoMesReferencia: text('ano_mes_referencia'),
     anoMesCompetencia: text('ano_mes_competencia'),
     uf: text('uf'),
@@ -58,9 +79,14 @@ export const BolsaFamiliaPagamentos = mysqlTable('bolsa_familia_pagamentos', {
     nisBeneficiario: text('nis_beneficiario'),
     nomeBeneficiario: text('nome_beneficiario'),
     valorParcela: text('valor_parcela'),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const BolsaFamiliaSaque = mysqlTable('bolsa_familia_saque', {
+    id: serial('id').primaryKey(),
     anoMesReferencia: text(),
     anoMesCompetencia: text(),
     uf: text(),
@@ -71,9 +97,14 @@ export const BolsaFamiliaSaque = mysqlTable('bolsa_familia_saque', {
     nomeBeneficiario: text(),
     dataSaque: text(),
     valorParcela: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const NovoBolsaFamilia = mysqlTable('novo_bolsa_familia', {
+    id: serial('id').primaryKey(),
     mesCompetencia: text(),
     mesReferencia: text(),
     uf: text(),
@@ -84,9 +115,13 @@ export const NovoBolsaFamilia = mysqlTable('novo_bolsa_familia', {
     nomeFavorecido: text(),
     dataDisponibilizacao: text(),
     valorParcela: text(),
+    exercicioReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const GarantiaSafra = mysqlTable('garantia_safra', {
+    id: serial('id').primaryKey(),
     anoMesReferencia: text(),
     uf: text(),
     codigoSiafiMunicipio: text(),
@@ -94,9 +129,14 @@ export const GarantiaSafra = mysqlTable('garantia_safra', {
     nisBeneficiario: text(),
     nomeBeneficiario: text(),
     valorBeneficio: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const GasDoPovo = mysqlTable('gas_do_povo', {
+    id: serial('id').primaryKey(),
     mesReferencia: text(),
     uf: text(),
     codigoMunicipio: text(),
@@ -111,9 +151,13 @@ export const GasDoPovo = mysqlTable('gas_do_povo', {
     dataFimVigenciaVale: text(),
     dataRetiradaVale: text(),
     valorBeneficio: text(),
+    exercicioReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const SeguroDefeso = mysqlTable('seguro_defeso', {
+    id: serial('id').primaryKey(),
     anoMesReferencia: text(),
     uf: text(),
     codigoSiafiMunicipio: text(),
@@ -123,9 +167,14 @@ export const SeguroDefeso = mysqlTable('seguro_defeso', {
     rgpFavorecido: text(),
     nomeFavorecido: text(),
     valorParcela: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Peti = mysqlTable('peti', {
+    id: serial('id').primaryKey(),
     anoMesReferencia: text(),
     uf: text(),
     codigoMunicipioSiafi: text(),
@@ -134,9 +183,14 @@ export const Peti = mysqlTable('peti', {
     nomeBeneficiario: text(),
     situacao: text(),
     valorParcela: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const PeDeMeia = mysqlTable('pe_de_meia', {
+    id: serial('id').primaryKey(),
     mesFolha: text(),
     mesReferencia: text(),
     dataPagamento: text(),
@@ -153,9 +207,13 @@ export const PeDeMeia = mysqlTable('pe_de_meia', {
     nisResponsavel: text(),
     nomeResponsavel: text(),
     valorParcela: text(),
+    exercicioReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Bpc = mysqlTable('bpc', {
+    id: serial('id').primaryKey(),
     mesCompetencia: text(),
     mesReferencia: text(),
     uf: text(),
@@ -170,9 +228,13 @@ export const Bpc = mysqlTable('bpc', {
     numeroBeneficio: text(),
     concedidoJudicialmente: text(),
     valorParcela: text(),
+    exercicioReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const CartaoPagamentoCpgf = mysqlTable('cartao_pagamento_cpgf', {
+    id: serial('id').primaryKey(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
     codigoOrgaoSubordinado: text(),
@@ -188,9 +250,14 @@ export const CartaoPagamentoCpgf = mysqlTable('cartao_pagamento_cpgf', {
     documentoFavorecido: text(),
     nomeFavorecido: text(),
     valorTransacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const CartaoPagamentoCpcc = mysqlTable('cartao_pagamento_cpcc', {
+    id: serial('id').primaryKey(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
     codigoOrgaoSubordinado: text(),
@@ -206,9 +273,14 @@ export const CartaoPagamentoCpcc = mysqlTable('cartao_pagamento_cpcc', {
     documentoFavorecido: text(),
     nomeFavorecido: text(),
     valorTransacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const CartaoPagamentoDefesaCivil = mysqlTable('cartao_pagamento_defesa_civil', {
+    id: serial('id').primaryKey(),
     uf: text(),
     executorDespesa: text(),
     codigoConvenente: text(),
@@ -224,9 +296,14 @@ export const CartaoPagamentoDefesaCivil = mysqlTable('cartao_pagamento_defesa_ci
     documentoFavorecido: text(),
     nomeFavorecido: text(),
     valorTransacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const FavorecidosPjCnpj = mysqlTable('favorecidos_pj_cnpj', {
+    id: serial('id').primaryKey(),
     cnpj: text(),
     razaoSocial: text(),
     nomeFantasia: text(),
@@ -240,23 +317,38 @@ export const FavorecidosPjCnpj = mysqlTable('favorecidos_pj_cnpj', {
     bairro: text(),
     municipio: text(),
     uf: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const FavorecidosPjCnae = mysqlTable('favorecidos_pj_cnae', {
+    id: serial('id').primaryKey(),
     codigoSecao: text(),
     descricaoSecao: text(),
     codigoSubclasse: text(),
     descricaoSubclasse: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const FavorecidosPjNaturezaJuridica = mysqlTable('favorecidos_pj_natureza_juridica', {
+    id: serial('id').primaryKey(),
     codigoNaturezaJuridica: text(),
     descricaoNaturezaJuridica: text(),
     codigoTipoNaturezaJuridica: text(),
     descricaoTipoNaturezaJuridica: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Convenios = mysqlTable('convenios', {
+    id: serial('id').primaryKey(),
     numeroConvenio: text(),
     uf: text(),
     codigoSiafiMunicipio: text(),
@@ -284,17 +376,27 @@ export const Convenios = mysqlTable('convenios', {
     valorContrapartida: text(),
     dataUltimaLiberacao: text(),
     valorUltimaLiberacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ConveniosOrdensBancarias = mysqlTable('convenios_ordens_bancarias', {
+    id: serial('id').primaryKey(),
     numeroConvenio: text(),
     numeroOriginal: text(),
     dataEmissaoOb: text(),
     numeroOrdemBancaria: text(),
     valorLiberado: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const DespesasEmpenho = mysqlTable('despesas_empenho', {
+    id: serial('id').primaryKey(),
     idEmpenho: text(),
     codigoEmpenho: text(),
     codigoEmpenhoResumido: text(),
@@ -358,9 +460,14 @@ export const DespesasEmpenho = mysqlTable('despesas_empenho', {
     valorOriginalEmpenho: text(),
     valorEmpenhoConvertido: text(),
     valorUtilizadoConversao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const DespesasLiquidacao = mysqlTable('despesas_liquidacao', {
+    id: serial('id').primaryKey(),
     codigoLiquidacao: text(),
     codigoLiquidacaoResumido: text(),
     dataEmissao: text(),
@@ -389,9 +496,14 @@ export const DespesasLiquidacao = mysqlTable('despesas_liquidacao', {
     planoOrcamentario: text(),
     codigoProgramaGoverno: text(),
     nomeProgramaGoverno: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const DespesasPagamento = mysqlTable('despesas_pagamento', {
+    id: serial('id').primaryKey(),
     codigoPagamento: text(),
     codigoPagamentoResumido: text(),
     dataEmissao: text(),
@@ -426,9 +538,14 @@ export const DespesasPagamento = mysqlTable('despesas_pagamento', {
     valorOriginalPagamento: text(),
     valorPagamentoConvertido: text(),
     valorUtilizadoConversao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ExecucaoDespesa = mysqlTable('execucao_despesa', {
+    id: serial('id').primaryKey(),
     anoMesLancamento: text(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
@@ -476,9 +593,14 @@ export const ExecucaoDespesa = mysqlTable('execucao_despesa', {
     valorRestosAPagarInscritos: text(),
     valorRestosAPagarCancelado: text(),
     valorRestosAPagarPagos: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const RecursosTransferidos = mysqlTable('recursos_transferidos', {
+    id: serial('id').primaryKey(),
     anoMes: text(),
     tipoTransferencia: text(),
     tipoFavorecido: text(),
@@ -515,9 +637,14 @@ export const RecursosTransferidos = mysqlTable('recursos_transferidos', {
     codigoFavorecido: text(),
     nomeFavorecido: text(),
     valorTransferido: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const RecebimentoRecursosFavorecido = mysqlTable('recebimento_recursos_favorecido', {
+    id: serial('id').primaryKey(),
     codigoFavorecido: text(),
     nomeFavorecido: text(),
     siglaUf: text(),
@@ -530,9 +657,14 @@ export const RecebimentoRecursosFavorecido = mysqlTable('recebimento_recursos_fa
     nomeUnidadeGestora: text(),
     anoMesLancamento: text(),
     valorRecebido: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const EmendasParlamentares = mysqlTable('emendas_parlamentares', {
+    id: serial('id').primaryKey(),
     codigoEmenda: text(),
     anoEmenda: text(),
     tipoEmenda: text(),
@@ -561,9 +693,14 @@ export const EmendasParlamentares = mysqlTable('emendas_parlamentares', {
     valorRestosAPagarInscritos: text(),
     valorRestosAPagarCancelados: text(),
     valorRestosAPagarPagos: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const EmendasParlamentaresConvenios = mysqlTable('emendas_parlamentares_convenios', {
+    id: serial('id').primaryKey(),
     codigoEmenda: text(),
     codigoFuncao: text(),
     nomeFuncao: text(),
@@ -576,9 +713,14 @@ export const EmendasParlamentaresConvenios = mysqlTable('emendas_parlamentares_c
     objetoConvenio: text(),
     numeroConvenio: text(),
     valorConvenio: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const EmendasParlamentaresFavorecido = mysqlTable('emendas_parlamentares_favorecido', {
+    id: serial('id').primaryKey(),
     codigoEmenda: text(),
     codigoAutorEmenda: text(),
     nomeAutorEmenda: text(),
@@ -592,9 +734,14 @@ export const EmendasParlamentaresFavorecido = mysqlTable('emendas_parlamentares_
     ufFavorecido: text(),
     municipioFavorecido: text(),
     valorRecebido: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const EmendasParlamentaresDocumentosDespesa = mysqlTable('emendas_parlamentares_documentos_despesa', {
+    id: serial('id').primaryKey(),
     codigoEmenda: text(),
     anoEmenda: text(),
     codigoAutorEmenda: text(),
@@ -643,9 +790,14 @@ export const EmendasParlamentaresDocumentosDespesa = mysqlTable('emendas_parlame
     codigoSubtituloLocalizador: text(),
     subtituloLocalizador: text(),
     possuiConvenio: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ApoiamentosEmendasParlamentares = mysqlTable('apoiamentos_emendas_parlamentares', {
+    id: serial('id').primaryKey(),
     codigoApoiador: text(),
     apoiador: text(),
     dataApoio: text(),
@@ -673,23 +825,38 @@ export const ApoiamentosEmendasParlamentares = mysqlTable('apoiamentos_emendas_p
     valorEmpenhado: text(),
     valorCancelado: text(),
     valorPago: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ImoveisFuncionais = mysqlTable('imoveis_funcionais', {
+    id: serial('id').primaryKey(),
     endereco: text(),
     orgaoResponsavel: text(),
     situacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ImoveisFuncionaisPermissionarios = mysqlTable('imoveis_funcionais_permissionarios', {
+    id: serial('id').primaryKey(),
     nomePermissionario: text(),
     cpf: text(),
     cargoFuncao: text(),
     orgaoExercicio: text(),
     dataOcupacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const LicitacaoEmpenhosRelacionados = mysqlTable('licitacao_empenhos_relacionados', {
+    id: serial('id').primaryKey(),
     numeroLicitacao: text(),
     codigoUg: text(),
     nomeUg: text(),
@@ -700,9 +867,14 @@ export const LicitacaoEmpenhosRelacionados = mysqlTable('licitacao_empenhos_rela
     dataEmissaoEmpenho: text(),
     observacaoEmpenho: text(),
     valorEmpenho: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const LicitacaoItem = mysqlTable('licitacao_item', {
+    id: serial('id').primaryKey(),
     numeroLicitacao: text(),
     codigoUg: text(),
     nomeUg: text(),
@@ -716,9 +888,14 @@ export const LicitacaoItem = mysqlTable('licitacao_item', {
     cnpjParticipante: text(),
     nomeParticipante: text(),
     flagVencedor: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Licitacao = mysqlTable('licitacao', {
+    id: serial('id').primaryKey(),
     numeroLicitacao: text(),
     codigoUg: text(),
     nomeUg: text(),
@@ -735,9 +912,14 @@ export const Licitacao = mysqlTable('licitacao', {
     dataResultadoCompra: text(),
     dataAbertura: text(),
     valorLicitacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const LicitacaoParticipantes = mysqlTable('licitacao_participantes', {
+    id: serial('id').primaryKey(),
     numeroLicitacao: text(),
     codigoUg: text(),
     nomeUg: text(),
@@ -751,9 +933,14 @@ export const LicitacaoParticipantes = mysqlTable('licitacao_participantes', {
     cnpjParticipante: text(),
     nomeParticipante: text(),
     flagVencedor: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ContratosCompras = mysqlTable('contratos_compras', {
+    id: serial('id').primaryKey(),
     numeroContrato: text(),
     objeto: text(),
     fundamentoLegal: text(),
@@ -778,9 +965,14 @@ export const ContratosCompras = mysqlTable('contratos_compras', {
     nomeUgLicitacao: text(),
     codigoModalidadeCompraLicitacao: text(),
     modalidadeCompraLicitacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ContratosItemCompra = mysqlTable('contratos_item_compra', {
+    id: serial('id').primaryKey(),
     numeroContrato: text(),
     codigoOrgao: text(),
     nomeOrgao: text(),
@@ -790,9 +982,14 @@ export const ContratosItemCompra = mysqlTable('contratos_item_compra', {
     descricaoItemCompra: text(),
     quantidadeItem: text(),
     valorItem: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ContratosTermoAditivo = mysqlTable('contratos_termo_aditivo', {
+    id: serial('id').primaryKey(),
     numeroContrato: text(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
@@ -803,9 +1000,14 @@ export const ContratosTermoAditivo = mysqlTable('contratos_termo_aditivo', {
     numeroTermoAditivo: text(),
     dataPublicacao: text(),
     objeto: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ContratosApostilamento = mysqlTable('contratos_apostilamento', {
+    id: serial('id').primaryKey(),
     numeroContrato: text(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
@@ -818,9 +1020,14 @@ export const ContratosApostilamento = mysqlTable('contratos_apostilamento', {
     valorApostilamento: text(),
     dataInclusao: text(),
     situacaoApostilamento: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const NotaFiscal = mysqlTable('nota_fiscal', {
+    id: serial('id').primaryKey(),
     chaveAcesso: text(),
     modelo: text(),
     serie: text(),
@@ -842,9 +1049,14 @@ export const NotaFiscal = mysqlTable('nota_fiscal', {
     consumidorFinal: text(),
     presencaComprador: text(),
     valorNotaFiscal: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const NotaFiscalEvento = mysqlTable('nota_fiscal_evento', {
+    id: serial('id').primaryKey(),
     chaveAcesso: text(),
     modelo: text(),
     serie: text(),
@@ -855,9 +1067,14 @@ export const NotaFiscalEvento = mysqlTable('nota_fiscal_evento', {
     dataHoraEvento: text(),
     descricaoEvento: text(),
     motivoEvento: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const NotaFiscalItem = mysqlTable('nota_fiscal_item', {
+    id: serial('id').primaryKey(),
     chaveAcesso: text(),
     modelo: text(),
     serie: text(),
@@ -885,9 +1102,14 @@ export const NotaFiscalItem = mysqlTable('nota_fiscal_item', {
     unidade: text(),
     valorUnitario: text(),
     valorTotal: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const OrcamentoDespesa = mysqlTable('orcamento_despesa', {
+    id: serial('id').primaryKey(),
     exercicio: text(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
@@ -918,9 +1140,14 @@ export const OrcamentoDespesa = mysqlTable('orcamento_despesa', {
     orcamentoEmpenhado: text(),
     orcamentoRealizado: text(),
     percentualRealizado: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Receitas = mysqlTable('receitas', {
+    id: serial('id').primaryKey(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
     codigoOrgao: text(),
@@ -936,9 +1163,14 @@ export const Receitas = mysqlTable('receitas', {
     percentualRealizado: text(),
     dataLancamento: text(),
     exercicio: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const RenunciasFiscais = mysqlTable('renuncias_fiscais', {
+    id: serial('id').primaryKey(),
     anoCalendario: text(),
     cnpj: text(),
     razaoSocial: text(),
@@ -954,9 +1186,14 @@ export const RenunciasFiscais = mysqlTable('renuncias_fiscais', {
     tributo: text(),
     formaTributacao: text(),
     valorRenunciaFiscal: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const RenunciasFiscaisPorBeneficiario = mysqlTable('renuncias_fiscais_por_beneficiario', {
+    id: serial('id').primaryKey(),
     anoCalendario: text(),
     cnpj: text(),
     razaoSocial: text(),
@@ -967,9 +1204,14 @@ export const RenunciasFiscaisPorBeneficiario = mysqlTable('renuncias_fiscais_por
     uf: text(),
     tipoEntidade: text(),
     beneficioFiscal: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const EmpresasImunesOuIsentas = mysqlTable('empresas_imunes_ou_isentas', {
+    id: serial('id').primaryKey(),
     anoCalendario: text(),
     cnpj: text(),
     razaoSocial: text(),
@@ -983,9 +1225,14 @@ export const EmpresasImunesOuIsentas = mysqlTable('empresas_imunes_ou_isentas', 
     descricao: text(),
     inicioHabilitacao: text(),
     fimHabilitacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const EmpresasHabilitadas = mysqlTable('empresas_habilitadas', {
+    id: serial('id').primaryKey(),
     anoCalendario: text(),
     cnpj: text(),
     razaoSocial: text(),
@@ -996,9 +1243,14 @@ export const EmpresasHabilitadas = mysqlTable('empresas_habilitadas', {
     uf: text(),
     tipoRenuncia: text(),
     valorRenunciaFiscal: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Ceis = mysqlTable('ceis', {
+    id: serial('id').primaryKey(),
     cadastro: text(),
     codigoSancao: text(),
     tipoPessoa: text(),
@@ -1023,17 +1275,27 @@ export const Ceis = mysqlTable('ceis', {
     dataOrigemInformacao: text(),
     origemInformacoes: text(),
     observacoes: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Cepim = mysqlTable('cepim', {
+    id: serial('id').primaryKey(),
     cnpjEntidade: text(),
     nomeEntidade: text(),
     numeroConvenio: text(),
     orgaoConcedente: text(),
     motivoImpedimento: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Cnep = mysqlTable('cnep', {
+    id: serial('id').primaryKey(),
     cadastro: text(),
     codigoSancao: text(),
     tipoPessoa: text(),
@@ -1059,9 +1321,14 @@ export const Cnep = mysqlTable('cnep', {
     dataOrigemInformacao: text(),
     origemInformacoes: text(),
     observacoes: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const AcordosLeniencia = mysqlTable('acordos_leniencia', {
+    id: serial('id').primaryKey(),
     cnpjSancionado: text(),
     nomeInformadoOrgaoSancionador: text(),
     razaoSocialCadastroReceita: text(),
@@ -1074,9 +1341,14 @@ export const AcordosLeniencia = mysqlTable('acordos_leniencia', {
     origemInformacoes: text(),
     situacaoAcordo: text(),
     contatoOrigemInformacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ServidoresCadastro = mysqlTable('servidores_cadastro', {
+    id: serial('id').primaryKey(),
     idServidorPortal: text(),
     nome: text(),
     cpf: text(),
@@ -1120,9 +1392,14 @@ export const ServidoresCadastro = mysqlTable('servidores_cadastro', {
     diplomaIngressoOrgao: text(),
     diplomaIngressoServpublico: text(),
     ufExercicio: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const AposentadosCadastro = mysqlTable('aposentados_cadastro', {
+    id: serial('id').primaryKey(),
     idServidorPortal: text(),
     nome: text(),
     cpf: text(),
@@ -1150,9 +1427,14 @@ export const AposentadosCadastro = mysqlTable('aposentados_cadastro', {
     diplomaIngressoCargofuncao: text(),
     diplomaIngressoOrgao: text(),
     diplomaIngressoServpublico: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const PensionistasCadastro = mysqlTable('pensionistas_cadastro', {
+    id: serial('id').primaryKey(),
     idServidorPortal: text(),
     nome: text(),
     cpf: text(),
@@ -1184,9 +1466,14 @@ export const PensionistasCadastro = mysqlTable('pensionistas_cadastro', {
     diplomaIngressoCargofuncaoInstituidorPensao: text(),
     diplomaIngressoOrgaoInstituidorPensao: text(),
     diplomaIngressoServicopublicoInstituidorPensao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ServidoresAfastamentos = mysqlTable('servidores_afastamentos', {
+    id: serial('id').primaryKey(),
     ano: text(),
     mes: text(),
     idServidorPortal: text(),
@@ -1194,18 +1481,28 @@ export const ServidoresAfastamentos = mysqlTable('servidores_afastamentos', {
     nome: text(),
     dataInicioAfastamento: text(),
     dataFimAfastamento: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ServidoresObservacoes = mysqlTable('servidores_observacoes', {
+    id: serial('id').primaryKey(),
     ano: text(),
     mes: text(),
     idServidorPortal: text(),
     nome: text(),
     cpf: text(),
     observacao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ServidoresHonorariosAdvocaticios = mysqlTable('servidores_honorarios_advocaticios', {
+    id: serial('id').primaryKey(),
     ano: text(),
     mes: text(),
     idServidorPortal: text(),
@@ -1213,9 +1510,14 @@ export const ServidoresHonorariosAdvocaticios = mysqlTable('servidores_honorario
     nome: text(),
     observacoes: text(),
     valor: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ServidoresJetons = mysqlTable('servidores_jetons', {
+    id: serial('id').primaryKey(),
     ano: text(),
     mes: text(),
     idServidorPortal: text(),
@@ -1223,9 +1525,14 @@ export const ServidoresJetons = mysqlTable('servidores_jetons', {
     nome: text(),
     empresa: text(),
     valor: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ServidoresRemuneracao = mysqlTable('servidores_remuneracao', {
+    id: serial('id').primaryKey(),
     ano: text(),
     mes: text(),
     idServidorPortal: text(),
@@ -1266,9 +1573,14 @@ export const ServidoresRemuneracao = mysqlTable('servidores_remuneracao', {
     totalVerbasIndenizatoriasRs: text(),
     totalVerbasIndenizatoriasUs: text(),
     totalHonorariosJetons: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Ceaf = mysqlTable('ceaf', {
+    id: serial('id').primaryKey(),
     cadastro: text(),
     codigoSancao: text(),
     tipoPessoa: text(),
@@ -1294,9 +1606,14 @@ export const Ceaf = mysqlTable('ceaf', {
     dataOrigemInformacao: text(),
     origemInformacoes: text(),
     observacoes: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const Pep = mysqlTable('pep', {
+    id: serial('id').primaryKey(),
     cpf: text(),
     nomePep: text(),
     siglaFuncao: text(),
@@ -1306,9 +1623,14 @@ export const Pep = mysqlTable('pep', {
     dataInicioExercicio: text(),
     dataFimExercicio: text(),
     dataFimCarencia: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ViagensPagamento = mysqlTable('viagens_pagamento', {
+    id: serial('id').primaryKey(),
     identificadorProcessoViagem: text(),
     codigoOrgaoSuperior: text(),
     nomeOrgaoSuperior: text(),
@@ -1318,9 +1640,14 @@ export const ViagensPagamento = mysqlTable('viagens_pagamento', {
     nomeUgPagadora: text(),
     tipoPagamento: text(),
     valorDespesa: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ViagensPassagem = mysqlTable('viagens_passagem', {
+    id: serial('id').primaryKey(),
     identificadorProcessoViagem: text(),
     meioTransporte: text(),
     paisOrigemIda: text(),
@@ -1337,9 +1664,14 @@ export const ViagensPassagem = mysqlTable('viagens_passagem', {
     cidadeDestinoVolta: text(),
     valorPassagem: text(),
     taxaServico: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ViagensTrecho = mysqlTable('viagens_trecho', {
+    id: serial('id').primaryKey(),
     identificadorProcessoViagem: text(),
     sequenciaTrecho: text(),
     origemData: text(),
@@ -1353,9 +1685,14 @@ export const ViagensTrecho = mysqlTable('viagens_trecho', {
     meioTransporte: text(),
     numeroDiarias: text(),
     missao: text(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
 
 export const ViagensViagem = mysqlTable('viagens_viagem', {
+    id: serial('id').primaryKey(),
     identificadorProcessoViagem: text(),
     situacao: text(),
     codigoOrgaoSuperior: text(),
@@ -1372,12 +1709,8 @@ export const ViagensViagem = mysqlTable('viagens_viagem', {
     valorDiarias: text(),
     valorPassagens: text(),
     valorOutrosGastos: text(),
-});
-
-export const FileDownloadHistory = mysqlTable('file_download_history', {
-    id: serial('id').primaryKey(),
-    fileName: varchar('file_name', { length: 255 }).notNull().unique(),
-    moduleName: varchar('module_name', { length: 255 }).notNull(),
-    frequency: varchar('frequency', { length: 100 }).notNull(),
-    downloadedAt: timestamp('downloaded_at').notNull(),
+    exercicioReferencia: text(),
+    mesReferencia: text(),
+    diaReferencia: text(),
+    dadosAdicionais: text(),
 });
