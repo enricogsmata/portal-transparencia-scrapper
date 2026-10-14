@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { ExecucaoDespesa } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,68 @@ type ExecucaoDespesaRow = typeof ExecucaoDespesa.$inferInsert;
 async function persistData(data: ExecucaoDespesaRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(ExecucaoDespesa).values(data);
+        await bronze_db.insert(ExecucaoDespesa).values(data).onDuplicateKeyUpdate({
+            set: {
+                anoMesLancamento: sql`values(${ExecucaoDespesa.anoMesLancamento})`,
+                codigoOrgaoSuperior: sql`values(${ExecucaoDespesa.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${ExecucaoDespesa.nomeOrgaoSuperior})`,
+                codigoOrgaoSubordinado: sql`values(${ExecucaoDespesa.codigoOrgaoSubordinado})`,
+                nomeOrgaoSubordinado: sql`values(${ExecucaoDespesa.nomeOrgaoSubordinado})`,
+                codigoUnidadeGestora: sql`values(${ExecucaoDespesa.codigoUnidadeGestora})`,
+                nomeUnidadeGestora: sql`values(${ExecucaoDespesa.nomeUnidadeGestora})`,
+                codigoGestao: sql`values(${ExecucaoDespesa.codigoGestao})`,
+                nomeGestao: sql`values(${ExecucaoDespesa.nomeGestao})`,
+                codigoUnidadeOrcamentaria: sql`values(${ExecucaoDespesa.codigoUnidadeOrcamentaria})`,
+                nomeUnidadeOrcamentaria: sql`values(${ExecucaoDespesa.nomeUnidadeOrcamentaria})`,
+                codigoFuncao: sql`values(${ExecucaoDespesa.codigoFuncao})`,
+                nomeFuncao: sql`values(${ExecucaoDespesa.nomeFuncao})`,
+                codigoSubfuncao: sql`values(${ExecucaoDespesa.codigoSubfuncao})`,
+                nomeSubfuncao: sql`values(${ExecucaoDespesa.nomeSubfuncao})`,
+                codigoProgramaOrcamentario: sql`values(${ExecucaoDespesa.codigoProgramaOrcamentario})`,
+                nomeProgramaOrcamentario: sql`values(${ExecucaoDespesa.nomeProgramaOrcamentario})`,
+                codigoAcao: sql`values(${ExecucaoDespesa.codigoAcao})`,
+                nomeAcao: sql`values(${ExecucaoDespesa.nomeAcao})`,
+                codigoPlanoOrcamentario: sql`values(${ExecucaoDespesa.codigoPlanoOrcamentario})`,
+                planoOrcamentario: sql`values(${ExecucaoDespesa.planoOrcamentario})`,
+                codigoProgramaGoverno: sql`values(${ExecucaoDespesa.codigoProgramaGoverno})`,
+                nomeProgramaGoverno: sql`values(${ExecucaoDespesa.nomeProgramaGoverno})`,
+                uf: sql`values(${ExecucaoDespesa.uf})`,
+                municipio: sql`values(${ExecucaoDespesa.municipio})`,
+                codigoSubtitulo: sql`values(${ExecucaoDespesa.codigoSubtitulo})`,
+                nomeSubtitulo: sql`values(${ExecucaoDespesa.nomeSubtitulo})`,
+                codigoLocalizador: sql`values(${ExecucaoDespesa.codigoLocalizador})`,
+                nomeLocalizador: sql`values(${ExecucaoDespesa.nomeLocalizador})`,
+                siglaLocalizador: sql`values(${ExecucaoDespesa.siglaLocalizador})`,
+                descricaoComplementarLocalizador: sql`values(${ExecucaoDespesa.descricaoComplementarLocalizador})`,
+                codigoAutorEmenda: sql`values(${ExecucaoDespesa.codigoAutorEmenda})`,
+                nomeAutorEmenda: sql`values(${ExecucaoDespesa.nomeAutorEmenda})`,
+                codigoCategoriaEconomica: sql`values(${ExecucaoDespesa.codigoCategoriaEconomica})`,
+                nomeCategoriaEconomica: sql`values(${ExecucaoDespesa.nomeCategoriaEconomica})`,
+                codigoGrupoDespesa: sql`values(${ExecucaoDespesa.codigoGrupoDespesa})`,
+                nomeGrupoDespesa: sql`values(${ExecucaoDespesa.nomeGrupoDespesa})`,
+                codigoElementoDespesa: sql`values(${ExecucaoDespesa.codigoElementoDespesa})`,
+                nomeElementoDespesa: sql`values(${ExecucaoDespesa.nomeElementoDespesa})`,
+                codigoModalidadeDespesa: sql`values(${ExecucaoDespesa.codigoModalidadeDespesa})`,
+                modalidadeDespesa: sql`values(${ExecucaoDespesa.modalidadeDespesa})`,
+                valorEmpenhado: sql`values(${ExecucaoDespesa.valorEmpenhado})`,
+                valorLiquidado: sql`values(${ExecucaoDespesa.valorLiquidado})`,
+                valorPago: sql`values(${ExecucaoDespesa.valorPago})`,
+                valorRestosAPagarInscritos: sql`values(${ExecucaoDespesa.valorRestosAPagarInscritos})`,
+                valorRestosAPagarCancelado: sql`values(${ExecucaoDespesa.valorRestosAPagarCancelado})`,
+                valorRestosAPagarPagos: sql`values(${ExecucaoDespesa.valorRestosAPagarPagos})`,
+                exercicioReferencia: sql`values(${ExecucaoDespesa.exercicioReferencia})`,
+                mesReferencia: sql`values(${ExecucaoDespesa.mesReferencia})`,
+                diaReferencia: sql`values(${ExecucaoDespesa.diaReferencia})`,
+                dadosAdicionais: sql`values(${ExecucaoDespesa.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: ExecucaoDespesaRow[] = [];
@@ -86,7 +141,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -123,7 +181,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -152,7 +211,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
