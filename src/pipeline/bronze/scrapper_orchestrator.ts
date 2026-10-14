@@ -158,7 +158,7 @@ function isFileValid(lastDownloadDate: Date, frequency: string, log: any): boole
     return isAfter(expirationDate, now);
 }
 
-async function processDownload(downloadUrl: string, destPath: string, uniqueFileName: string, file: FileMetadata, moduleName: string, page: Page, log: any) {
+async function processDownload(downloadUrl: string, destPath: string, uniqueFileName: string, file: FileMetadata, moduleName: string, page: Page, log: any): Promise<boolean> {
     const records = await bronze_db.select().from(FileDownloadHistory).where(eq(FileDownloadHistory.fileName, uniqueFileName)).limit(1);
 
     let fileExistsOnDisk = false;
@@ -171,7 +171,7 @@ async function processDownload(downloadUrl: string, destPath: string, uniqueFile
 
     if (records.length > 0 && isFileValid(records[0].downloadedAt, file.frequency, log) && fileExistsOnDisk) {
         log.info(`Arquivo ${uniqueFileName} ignorado (dentro da validade e presente no disco).`);
-        return;
+        return true;
     }
 
     // Garante que qualquer arquivo corrompido/parcial seja limpo antes do novo download
@@ -190,9 +190,11 @@ async function processDownload(downloadUrl: string, destPath: string, uniqueFile
         frequency: file.frequency,
         downloadedAt: new Date()
     });
+
+    return true;
 }
 
-async function fetchFilesForModule(modules: ModuleData[]): Promise<void> {
+async function fetchFilesForModule(modules: ModuleData[], options?: { oneFilePerModule?: boolean }): Promise<void> {
     const log = logger.forMethod("fetchFilesForModule");
     log.info("Iniciando extração de arquivos por exercício e mês (Etapa 2)");
 
@@ -208,6 +210,8 @@ async function fetchFilesForModule(modules: ModuleData[]): Promise<void> {
 
     for (const mod of modules) {
         for (const file of mod.files) {
+            let fileDone = false; // Controle individual por item/arquivo do agrupamento
+
             if (!browser.connected) {
                 log.warn("Conexão com o Puppeteer perdida. Recriando instância...");
                 browser = await puppeteer.launch({
@@ -244,34 +248,121 @@ async function fetchFilesForModule(modules: ModuleData[]): Promise<void> {
                     continue;
                 }
 
-                const hasAnos = await page.evaluate(() => {
-                    const el = document.querySelector('#anos');
+                const hasOrigens = await page.evaluate(() => {
+                    const el = document.querySelector('#origens');
                     return el && window.getComputedStyle(el).display !== 'none';
                 });
 
-                if (hasAnos) {
-                    const anos = await page.$$eval('#links-anos option', options => options.map(o => (o as HTMLOptionElement).value)); for (const ano of anos) {
-                        await page.select('#links-anos', ano); await new Promise(r => setTimeout(r, 1500)); const hasMeses = await page.evaluate(() => { const el = document.querySelector('#meses'); return el && window.getComputedStyle(el).display !== 'none'; }); if (hasMeses) {
-                            const meses = await page.$$eval('#links-meses option', options => options.map(o => (o as HTMLOptionElement).value));
+                const origens = hasOrigens
+                    ? await page.$$eval('#links-origens option', options => options.map(o => (o as HTMLOptionElement).value)) : [null]; for (const origem of origens) {
+                        if (fileDone) break; if (origem) { await page.select('#links-origens', origem); await new Promise(r => setTimeout(r, 1500)); } const hasAnos = await page.evaluate(() => { const el = document.querySelector('#anos'); return el && window.getComputedStyle(el).display !== 'none'; }); if (hasAnos) {
+                            const anos = await page.$$eval('#links-anos option', options => options.map(o => (o as HTMLOptionElement).value));
 
-                            for (const mes of meses) {
-                                const downloadUrl = `https://portaldatransparencia.gov.br${file.href}/${ano}${mes}`;
-                                const fileName = `${ano}${mes}.zip`;
-                                const destPath = path.join(ZIP_FILES_DIRECTORY, file.folderName, fileName);
-                                const uniqueFileName = `${file.folderName}/${fileName}`;
+                            for (const ano of anos) {
+                                if (fileDone) break;
 
-                                await processDownload(downloadUrl, destPath, uniqueFileName, file, mod.moduleName, page, log);
+                                await page.select('#links-anos', ano);
+                                await new Promise(r => setTimeout(r, 1500));
+
+                                const hasMeses = await page.evaluate(() => {
+                                    const el = document.querySelector('#meses');
+                                    const select = document.querySelector('#links-meses') as HTMLSelectElement | null;
+                                    const isVisible = el && window.getComputedStyle(el).display !== 'none';
+                                    return Boolean(isVisible && select && select.options.length > 0);
+                                });
+
+                                if (hasMeses) {
+                                    const meses = await page.$$eval('#links-meses option', options => options.map(o => (o as HTMLOptionElement).value));
+                                    for (const mes of meses) {
+                                        if (fileDone) break;
+
+                                        await page.select('#links-meses', mes); await new Promise(r => setTimeout(r, 1500));
+                                        const hasDias = await page.evaluate(() => {
+                                            const el = document.querySelector('#dias');
+                                            const select = document.querySelector('#links-dias') as HTMLSelectElement || null;
+                                            const isVisible = el && window.getComputedStyle(el).display !== 'none';
+                                            return Boolean(isVisible && select && select.options.length > 0);
+                                        });
+
+                                        if (hasDias) {
+                                            const dias = await page.$$eval('#links-dias option', options => options.map(o => (o as HTMLOptionElement).value));
+
+                                            for (const dia of dias) {
+                                                if (fileDone) break;
+
+                                                await page.select('#links-dias', dia);
+                                                await new Promise(r => setTimeout(r, 1000));
+
+                                                const downloadPath = `${file.href}/${ano}${mes}${dia}${origem ? '_' + origem : ''}`;
+                                                const downloadUrl = `https://portaldatransparencia.gov.br${downloadPath}`;
+                                                const fileName = downloadPath.split('/').pop() + '.zip';
+                                                const destPath = path.join(ZIP_FILES_DIRECTORY, file.folderName, fileName);
+                                                const uniqueFileName = `${file.folderName}/${fileName}`;
+
+                                                const success = await processDownload(downloadUrl, destPath, uniqueFileName, file, mod.moduleName, page, log);
+                                                if (success && options?.oneFilePerModule) fileDone = true;
+                                            }
+                                        } else {
+                                            const hasOrigensMes = await page.evaluate(() => {
+                                                const el = document.querySelector('#origens-mes');
+                                                const select = document.querySelector('#links-origens-mes') as HTMLSelectElement | null;
+                                                const isVisible = el && window.getComputedStyle(el).display !== 'none';
+                                                return Boolean(isVisible && select && select.options.length > 0);
+                                            });
+
+                                            if (hasOrigensMes) {
+                                                const origensMes = await page.$$eval('#links-origens-mes option', options => options.map(o => (o as HTMLOptionElement).value));
+
+                                                for (const origemMes of origensMes) {
+                                                    if (fileDone) break;
+
+                                                    await page.select('#links-origens-mes', origemMes);
+                                                    await new Promise(r => setTimeout(r, 1000));
+
+                                                    const downloadPath = `${file.href}/${ano}${mes}_${origemMes}`;
+                                                    const downloadUrl = `https://portaldatransparencia.gov.br${downloadPath}`;
+                                                    const fileName = downloadPath.split('/').pop() + '.zip';
+                                                    const destPath = path.join(ZIP_FILES_DIRECTORY, file.folderName, fileName);
+                                                    const uniqueFileName = `${file.folderName}/${fileName}`;
+
+                                                    const success = await processDownload(downloadUrl, destPath, uniqueFileName, file, mod.moduleName, page, log);
+                                                    if (success && options?.oneFilePerModule) fileDone = true;
+                                                }
+                                            } else {
+                                                const downloadPath = `${file.href}/${ano}${mes}${origem ? '_' + origem : ''}`;
+                                                const downloadUrl = `https://portaldatransparencia.gov.br${downloadPath}`;
+                                                const fileName = downloadPath.split('/').pop() + '.zip';
+                                                const destPath = path.join(ZIP_FILES_DIRECTORY, file.folderName, fileName);
+                                                const uniqueFileName = `${file.folderName}/${fileName}`;
+
+                                                const success = await processDownload(downloadUrl, destPath, uniqueFileName, file, mod.moduleName, page, log);
+                                                if (success && options?.oneFilePerModule) fileDone = true;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    const dynamicHref = await page.$eval('#link', el => el.getAttribute('href')).catch(() => null);
+                                    let downloadPath = dynamicHref;
+
+                                    if (!downloadPath) {
+                                        const linkHref = await page.evaluate(() => {
+                                            const a = document.querySelector('#anos a') as HTMLAnchorElement | null;
+                                            return a ? a.getAttribute('href') : null;
+                                        });
+                                        downloadPath = linkHref || `${file.href}/${ano}${origem ? '_' + origem : ''}`;
+                                    }
+
+                                    const downloadUrl = `https://portaldatransparencia.gov.br${downloadPath}`;
+                                    const fileName = downloadPath.split('/').pop() + '.zip';
+                                    const destPath = path.join(ZIP_FILES_DIRECTORY, file.folderName, fileName);
+                                    const uniqueFileName = `${file.folderName}/${fileName}`;
+
+                                    const success = await processDownload(downloadUrl, destPath, uniqueFileName, file, mod.moduleName, page, log);
+                                    if (success && options?.oneFilePerModule) fileDone = true;
+                                }
                             }
-                        } else {
-                            const downloadUrl = `https://portaldatransparencia.gov.br${file.href}/${ano}`;
-                            const fileName = `${ano}.zip`;
-                            const destPath = path.join(ZIP_FILES_DIRECTORY, file.folderName, fileName);
-                            const uniqueFileName = `${file.folderName}/${fileName}`;
-
-                            await processDownload(downloadUrl, destPath, uniqueFileName, file, mod.moduleName, page, log);
                         }
                     }
-                }
             } catch (error) {
                 log.error({ data: error }, `Erro ao processar o arquivo ${file.name}`);
             }
@@ -284,17 +375,17 @@ async function fetchFilesForModule(modules: ModuleData[]): Promise<void> {
     log.info("Etapa 2 concluída com sucesso.");
 }
 
-export async function runScrapper(): Promise<ModuleData[]> {
+export async function runScrapper(options?: { oneFilePerModule?: boolean }) {
     const log = logger.forMethod("runScrapper");
     try {
         log.info("Iniciando orquestração do scrapper");
 
         const modules = await fetchPortalData();
         await ensureDirectories(modules);
-        await fetchFilesForModule(modules);
+        await fetchFilesForModule(modules, options);
 
         log.info("Orquestração do scrapper finalizada com sucesso");
-        return modules;
+        return;
     } catch (error) {
         log.error({ data: error }, "Erro fatal durante a execução do scrapper");
         throw error;
