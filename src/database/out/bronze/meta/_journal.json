@@ -15,6 +15,13 @@
       "when": 1791916722494,
       "tag": "0001_high_alice",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791927048794,
+      "tag": "0002_safe_tenebrous",
+      "breakpoints": true
     }
   ]
 }
