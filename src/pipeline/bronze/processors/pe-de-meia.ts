@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { PeDeMeia } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,36 @@ type PeDeMeiaRow = typeof PeDeMeia.$inferInsert;
 async function persistData(data: PeDeMeiaRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(PeDeMeia).values(data);
+        await bronze_db.insert(PeDeMeia).values(data).onDuplicateKeyUpdate({
+            set: {
+                mesFolha: sql`values(${PeDeMeia.mesFolha})`,
+                mesReferencia: sql`values(${PeDeMeia.mesReferencia})`,
+                dataPagamento: sql`values(${PeDeMeia.dataPagamento})`,
+                uf: sql`values(${PeDeMeia.uf})`,
+                codigoMunicipio: sql`values(${PeDeMeia.codigoMunicipio})`,
+                nomeMunicipio: sql`values(${PeDeMeia.nomeMunicipio})`,
+                tipoParcela: sql`values(${PeDeMeia.tipoParcela})`,
+                periodoParcela: sql`values(${PeDeMeia.periodoParcela})`,
+                etapaEnsino: sql`values(${PeDeMeia.etapaEnsino})`,
+                cpfBeneficiario: sql`values(${PeDeMeia.cpfBeneficiario})`,
+                nisBeneficiario: sql`values(${PeDeMeia.nisBeneficiario})`,
+                nomeBeneficiario: sql`values(${PeDeMeia.nomeBeneficiario})`,
+                cpfResponsavel: sql`values(${PeDeMeia.cpfResponsavel})`,
+                nisResponsavel: sql`values(${PeDeMeia.nisResponsavel})`,
+                nomeResponsavel: sql`values(${PeDeMeia.nomeResponsavel})`,
+                valorParcela: sql`values(${PeDeMeia.valorParcela})`,
+                exercicioReferencia: sql`values(${PeDeMeia.exercicioReferencia})`,
+                diaReferencia: sql`values(${PeDeMeia.diaReferencia})`,
+                dadosAdicionais: sql`values(${PeDeMeia.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: PeDeMeiaRow[] = [];
@@ -53,7 +76,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -90,7 +116,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -119,7 +146,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
