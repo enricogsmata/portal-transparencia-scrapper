@@ -161,10 +161,21 @@ function isFileValid(lastDownloadDate: Date, frequency: string, log: any): boole
 async function processDownload(downloadUrl: string, destPath: string, uniqueFileName: string, file: FileMetadata, moduleName: string, page: Page, log: any) {
     const records = await bronze_db.select().from(FileDownloadHistory).where(eq(FileDownloadHistory.fileName, uniqueFileName)).limit(1);
 
-    if (records.length > 0 && isFileValid(records[0].downloadedAt, file.frequency, log)) {
-        log.info(`Arquivo ${uniqueFileName} ignorado (dentro da validade).`);
+    let fileExistsOnDisk = false;
+    try {
+        await fs.access(destPath);
+        fileExistsOnDisk = true;
+    } catch {
+        fileExistsOnDisk = false;
+    }
+
+    if (records.length > 0 && isFileValid(records[0].downloadedAt, file.frequency, log) && fileExistsOnDisk) {
+        log.info(`Arquivo ${uniqueFileName} ignorado (dentro da validade e presente no disco).`);
         return;
     }
+
+    // Garante que qualquer arquivo corrompido/parcial seja limpo antes do novo download
+    await fs.rm(destPath, { force: true }).catch(() => { });
 
     log.info(`Baixando: ${downloadUrl} para ${destPath}`);
     await downloadZip(page, downloadUrl, destPath);
