@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { RecebimentoRecursosFavorecido } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,33 @@ type RecebimentoRecursosFavorecidoRow = typeof RecebimentoRecursosFavorecido.$in
 async function persistData(data: RecebimentoRecursosFavorecidoRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(RecebimentoRecursosFavorecido).values(data);
+        await bronze_db.insert(RecebimentoRecursosFavorecido).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoFavorecido: sql`values(${RecebimentoRecursosFavorecido.codigoFavorecido})`,
+                nomeFavorecido: sql`values(${RecebimentoRecursosFavorecido.nomeFavorecido})`,
+                siglaUf: sql`values(${RecebimentoRecursosFavorecido.siglaUf})`,
+                nomeMunicipio: sql`values(${RecebimentoRecursosFavorecido.nomeMunicipio})`,
+                codigoOrgaoSuperior: sql`values(${RecebimentoRecursosFavorecido.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${RecebimentoRecursosFavorecido.nomeOrgaoSuperior})`,
+                codigoOrgao: sql`values(${RecebimentoRecursosFavorecido.codigoOrgao})`,
+                nomeOrgao: sql`values(${RecebimentoRecursosFavorecido.nomeOrgao})`,
+                codigoUnidadeGestora: sql`values(${RecebimentoRecursosFavorecido.codigoUnidadeGestora})`,
+                nomeUnidadeGestora: sql`values(${RecebimentoRecursosFavorecido.nomeUnidadeGestora})`,
+                anoMesLancamento: sql`values(${RecebimentoRecursosFavorecido.anoMesLancamento})`,
+                valorRecebido: sql`values(${RecebimentoRecursosFavorecido.valorRecebido})`,
+                exercicioReferencia: sql`values(${RecebimentoRecursosFavorecido.exercicioReferencia})`,
+                mesReferencia: sql`values(${RecebimentoRecursosFavorecido.mesReferencia})`,
+                diaReferencia: sql`values(${RecebimentoRecursosFavorecido.diaReferencia})`,
+                dadosAdicionais: sql`values(${RecebimentoRecursosFavorecido.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: RecebimentoRecursosFavorecidoRow[] = [];
@@ -32,7 +52,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h.includes('CÓDIGO FAVORECIDO') || h.includes('CODIGO FAVORECIDO')) return 'codigoFavorecido';
                 if (h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
                 if (h.includes('SIGLA UF')) return 'siglaUf';
@@ -45,13 +65,16 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
                 if (h.includes('NOME UNIDADE GESTORA')) return 'nomeUnidadeGestora';
                 if (h.includes('ANO E MÊS DO LANÇAMENTO') || h.includes('ANO E MES DO LANCAMENTO')) return 'anoMesLancamento';
                 if (h.includes('VALOR RECEBIDO')) return 'valorRecebido';
-                
+
                 return header.trim();
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -88,7 +111,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -117,7 +141,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

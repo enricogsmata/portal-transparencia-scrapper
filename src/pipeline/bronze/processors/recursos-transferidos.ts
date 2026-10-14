@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { RecursosTransferidos } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,57 @@ type RecursosTransferidosRow = typeof RecursosTransferidos.$inferInsert;
 async function persistData(data: RecursosTransferidosRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(RecursosTransferidos).values(data);
+        await bronze_db.insert(RecursosTransferidos).values(data).onDuplicateKeyUpdate({
+            set: {
+                anoMes: sql`values(${RecursosTransferidos.anoMes})`,
+                tipoTransferencia: sql`values(${RecursosTransferidos.tipoTransferencia})`,
+                tipoFavorecido: sql`values(${RecursosTransferidos.tipoFavorecido})`,
+                uf: sql`values(${RecursosTransferidos.uf})`,
+                codigoMunicipioSiafi: sql`values(${RecursosTransferidos.codigoMunicipioSiafi})`,
+                nomeMunicipio: sql`values(${RecursosTransferidos.nomeMunicipio})`,
+                codigoOrgaoSiafi: sql`values(${RecursosTransferidos.codigoOrgaoSiafi})`,
+                nomeOrgao: sql`values(${RecursosTransferidos.nomeOrgao})`,
+                codigoUnidadeGestora: sql`values(${RecursosTransferidos.codigoUnidadeGestora})`,
+                nomeUnidadeGestora: sql`values(${RecursosTransferidos.nomeUnidadeGestora})`,
+                codigoFuncao: sql`values(${RecursosTransferidos.codigoFuncao})`,
+                nomeFuncao: sql`values(${RecursosTransferidos.nomeFuncao})`,
+                codigoSubfuncao: sql`values(${RecursosTransferidos.codigoSubfuncao})`,
+                nomeSubfuncao: sql`values(${RecursosTransferidos.nomeSubfuncao})`,
+                codigoPrograma: sql`values(${RecursosTransferidos.codigoPrograma})`,
+                nomePrograma: sql`values(${RecursosTransferidos.nomePrograma})`,
+                codigoAcao: sql`values(${RecursosTransferidos.codigoAcao})`,
+                nomeAcao: sql`values(${RecursosTransferidos.nomeAcao})`,
+                linguagemCidada: sql`values(${RecursosTransferidos.linguagemCidada})`,
+                codigoGrupoDespesa: sql`values(${RecursosTransferidos.codigoGrupoDespesa})`,
+                grupoDespesa: sql`values(${RecursosTransferidos.grupoDespesa})`,
+                codigoModalidadeAplicacaoDespesa: sql`values(${RecursosTransferidos.codigoModalidadeAplicacaoDespesa})`,
+                nomeModalidadeAplicacaoDespesa: sql`values(${RecursosTransferidos.nomeModalidadeAplicacaoDespesa})`,
+                codigoElementoDespesa: sql`values(${RecursosTransferidos.codigoElementoDespesa})`,
+                nomeElementoDespesa: sql`values(${RecursosTransferidos.nomeElementoDespesa})`,
+                codigoPlanoOrcamentario: sql`values(${RecursosTransferidos.codigoPlanoOrcamentario})`,
+                nomePlanoOrcamentario: sql`values(${RecursosTransferidos.nomePlanoOrcamentario})`,
+                codigoSubtitulo: sql`values(${RecursosTransferidos.codigoSubtitulo})`,
+                nomeSubtitulo: sql`values(${RecursosTransferidos.nomeSubtitulo})`,
+                codigoLocalizador: sql`values(${RecursosTransferidos.codigoLocalizador})`,
+                nomeLocalizador: sql`values(${RecursosTransferidos.nomeLocalizador})`,
+                siglaLocalizador: sql`values(${RecursosTransferidos.siglaLocalizador})`,
+                descricaoComplementarLocalizador: sql`values(${RecursosTransferidos.descricaoComplementarLocalizador})`,
+                codigoFavorecido: sql`values(${RecursosTransferidos.codigoFavorecido})`,
+                nomeFavorecido: sql`values(${RecursosTransferidos.nomeFavorecido})`,
+                valorTransferido: sql`values(${RecursosTransferidos.valorTransferido})`,
+                exercicioReferencia: sql`values(${RecursosTransferidos.exercicioReferencia})`,
+                mesReferencia: sql`values(${RecursosTransferidos.mesReferencia})`,
+                diaReferencia: sql`values(${RecursosTransferidos.diaReferencia})`,
+                dadosAdicionais: sql`values(${RecursosTransferidos.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: RecursosTransferidosRow[] = [];
@@ -32,7 +76,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h.includes('ANO / MÊS') || h.includes('ANO / MES')) return 'anoMes';
                 if (h.includes('TIPO TRANSFERÊNCIA') || h.includes('TIPO TRANSFERENCIA')) return 'tipoTransferencia';
                 if (h.includes('TIPO FAVORECIDO')) return 'tipoFavorecido';
@@ -69,13 +113,16 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
                 if (h.includes('CÓDIGO FAVORECIDO') || h.includes('CODIGO FAVORECIDO')) return 'codigoFavorecido';
                 if (h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
                 if (h.includes('VALOR TRANSFERIDO')) return 'valorTransferido';
-                
+
                 return header.trim();
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -112,7 +159,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -141,7 +189,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
