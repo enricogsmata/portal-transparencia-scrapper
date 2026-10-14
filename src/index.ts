@@ -5,14 +5,13 @@ import { new_logger } from "./services/logs.js";
 const logger = new_logger(import.meta.url);
 
 async function run() {
-    const log = logger.forMethod('run');
-    await
-        //await runProcessors();
-        await runScrapper().catch(err => {
-            logger.logger.fatal(err);
-            process.exit(1);
-        });;
-        
+    await runScrapper().catch(err => {
+        logger.logger.fatal(err);
+        process.exit(1);
+    });;
+    
+    await runProcessors();
+    
     return;
 }
 

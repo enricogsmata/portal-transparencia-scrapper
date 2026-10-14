@@ -142,8 +142,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
     return totalRowsAllFiles;
 }
 
-export async function runBolsaFamiliaIngestion() {
-    const log = logger.forMethod('runBolsaFamiliaIngestion');
+export async function runBolsaPagamentosFamiliaIngestion() {
+    const log = logger.forMethod('runBolsaPagamentosFamiliaIngestion');
     const moduleName = 'bolsa-familia';
 
     try {

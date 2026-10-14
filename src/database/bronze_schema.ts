@@ -1374,8 +1374,6 @@ export const ViagensViagem = mysqlTable('viagens_viagem', {
     valorOutrosGastos: text(),
 });
 
-
-
 export const FileDownloadHistory = mysqlTable('file_download_history', {
     id: serial('id').primaryKey(),
     fileName: varchar('file_name', { length: 255 }).notNull().unique(),
