@@ -2,14 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
-import { 
-    FavorecidosPjCnpj, 
-    FavorecidosPjCnae, 
-    FavorecidosPjNaturezaJuridica 
+import {
+    FavorecidosPjCnpj,
+    FavorecidosPjCnae,
+    FavorecidosPjNaturezaJuridica
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -18,7 +19,27 @@ const BATCH_SIZE = 2000;
 async function persistCnpj(data: (typeof FavorecidosPjCnpj.$inferInsert)[]) {
     const log = logger.forMethod('persistCnpj');
     try {
-        await bronze_db.insert(FavorecidosPjCnpj).values(data);
+        await bronze_db.insert(FavorecidosPjCnpj).values(data).onDuplicateKeyUpdate({
+            set: {
+                cnpj: sql`values(${FavorecidosPjCnpj.cnpj})`,
+                razaoSocial: sql`values(${FavorecidosPjCnpj.razaoSocial})`,
+                nomeFantasia: sql`values(${FavorecidosPjCnpj.nomeFantasia})`,
+                codigoCnae: sql`values(${FavorecidosPjCnpj.codigoCnae})`,
+                codigoNaturezaJuridica: sql`values(${FavorecidosPjCnpj.codigoNaturezaJuridica})`,
+                tipoPessoa: sql`values(${FavorecidosPjCnpj.tipoPessoa})`,
+                logradouro: sql`values(${FavorecidosPjCnpj.logradouro})`,
+                numero: sql`values(${FavorecidosPjCnpj.numero})`,
+                complemento: sql`values(${FavorecidosPjCnpj.complemento})`,
+                cep: sql`values(${FavorecidosPjCnpj.cep})`,
+                bairro: sql`values(${FavorecidosPjCnpj.bairro})`,
+                municipio: sql`values(${FavorecidosPjCnpj.municipio})`,
+                uf: sql`values(${FavorecidosPjCnpj.uf})`,
+                exercicioReferencia: sql`values(${FavorecidosPjCnpj.exercicioReferencia})`,
+                mesReferencia: sql`values(${FavorecidosPjCnpj.mesReferencia})`,
+                diaReferencia: sql`values(${FavorecidosPjCnpj.diaReferencia})`,
+                dadosAdicionais: sql`values(${FavorecidosPjCnpj.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de CNPJ`);
         throw error;
@@ -28,7 +49,18 @@ async function persistCnpj(data: (typeof FavorecidosPjCnpj.$inferInsert)[]) {
 async function persistCnae(data: (typeof FavorecidosPjCnae.$inferInsert)[]) {
     const log = logger.forMethod('persistCnae');
     try {
-        await bronze_db.insert(FavorecidosPjCnae).values(data);
+        await bronze_db.insert(FavorecidosPjCnae).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoSecao: sql`values(${FavorecidosPjCnae.codigoSecao})`,
+                descricaoSecao: sql`values(${FavorecidosPjCnae.descricaoSecao})`,
+                codigoSubclasse: sql`values(${FavorecidosPjCnae.codigoSubclasse})`,
+                descricaoSubclasse: sql`values(${FavorecidosPjCnae.descricaoSubclasse})`,
+                exercicioReferencia: sql`values(${FavorecidosPjCnae.exercicioReferencia})`,
+                mesReferencia: sql`values(${FavorecidosPjCnae.mesReferencia})`,
+                diaReferencia: sql`values(${FavorecidosPjCnae.diaReferencia})`,
+                dadosAdicionais: sql`values(${FavorecidosPjCnae.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de CNAE`);
         throw error;
@@ -38,14 +70,25 @@ async function persistCnae(data: (typeof FavorecidosPjCnae.$inferInsert)[]) {
 async function persistNaturezaJuridica(data: (typeof FavorecidosPjNaturezaJuridica.$inferInsert)[]) {
     const log = logger.forMethod('persistNaturezaJuridica');
     try {
-        await bronze_db.insert(FavorecidosPjNaturezaJuridica).values(data);
+        await bronze_db.insert(FavorecidosPjNaturezaJuridica).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoNaturezaJuridica: sql`values(${FavorecidosPjNaturezaJuridica.codigoNaturezaJuridica})`,
+                descricaoNaturezaJuridica: sql`values(${FavorecidosPjNaturezaJuridica.descricaoNaturezaJuridica})`,
+                codigoTipoNaturezaJuridica: sql`values(${FavorecidosPjNaturezaJuridica.codigoTipoNaturezaJuridica})`,
+                descricaoTipoNaturezaJuridica: sql`values(${FavorecidosPjNaturezaJuridica.descricaoTipoNaturezaJuridica})`,
+                exercicioReferencia: sql`values(${FavorecidosPjNaturezaJuridica.exercicioReferencia})`,
+                mesReferencia: sql`values(${FavorecidosPjNaturezaJuridica.mesReferencia})`,
+                diaReferencia: sql`values(${FavorecidosPjNaturezaJuridica.diaReferencia})`,
+                dadosAdicionais: sql`values(${FavorecidosPjNaturezaJuridica.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Natureza Jurídica`);
         throw error;
     }
 }
 
-async function processCnpjStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processCnpjStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCnpjStream');
     let batch: (typeof FavorecidosPjCnpj.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -73,7 +116,10 @@ async function processCnpjStream(stream: NodeJS.ReadableStream): Promise<number>
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistCnpj(batch);
                 totalProcessed += batch.length;
@@ -93,7 +139,7 @@ async function processCnpjStream(stream: NodeJS.ReadableStream): Promise<number>
     }
 }
 
-async function processCnaeStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processCnaeStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCnaeStream');
     let batch: (typeof FavorecidosPjCnae.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -112,7 +158,10 @@ async function processCnaeStream(stream: NodeJS.ReadableStream): Promise<number>
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistCnae(batch);
                 totalProcessed += batch.length;
@@ -132,7 +181,7 @@ async function processCnaeStream(stream: NodeJS.ReadableStream): Promise<number>
     }
 }
 
-async function processNaturezaJuridicaStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processNaturezaJuridicaStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processNaturezaJuridicaStream');
     let batch: (typeof FavorecidosPjNaturezaJuridica.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -151,7 +200,10 @@ async function processNaturezaJuridicaStream(stream: NodeJS.ReadableStream): Pro
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistNaturezaJuridica(batch);
                 totalProcessed += batch.length;
@@ -186,7 +238,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -217,18 +270,18 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('CNAE')) {
-                                rowsCount = await processCnaeStream(readStream);
+                                rowsCount = await processCnaeStream(readStream, metadata);
                             } else if (upperName.includes('CNPJ')) {
-                                rowsCount = await processCnpjStream(readStream);
+                                rowsCount = await processCnpjStream(readStream, metadata);
                             } else if (upperName.includes('NATUREZAJURIDICA')) {
-                                rowsCount = await processNaturezaJuridicaStream(readStream);
+                                rowsCount = await processNaturezaJuridicaStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado pois não corresponde aos padrões');
-                                readStream.resume(); // Esgota o stream para liberar memória
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
