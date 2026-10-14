@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { BolsaFamiliaPagamentos } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,30 @@ type BolsaFamiliaPagamentosRow = typeof BolsaFamiliaPagamentos.$inferInsert;
 async function persistData(data: BolsaFamiliaPagamentosRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(BolsaFamiliaPagamentos).values(data);
+        await bronze_db.insert(BolsaFamiliaPagamentos).values(data).onDuplicateKeyUpdate({
+            set: {
+                anoMesReferencia: sql`values(${BolsaFamiliaPagamentos.anoMesReferencia})`,
+                anoMesCompetencia: sql`values(${BolsaFamiliaPagamentos.anoMesCompetencia})`,
+                uf: sql`values(${BolsaFamiliaPagamentos.uf})`,
+                codigoMunicipioSiafi: sql`values(${BolsaFamiliaPagamentos.codigoMunicipioSiafi})`,
+                nomeMunicipioSiafi: sql`values(${BolsaFamiliaPagamentos.nomeMunicipioSiafi})`,
+                cpfBeneficiario: sql`values(${BolsaFamiliaPagamentos.cpfBeneficiario})`,
+                nisBeneficiario: sql`values(${BolsaFamiliaPagamentos.nisBeneficiario})`,
+                nomeBeneficiario: sql`values(${BolsaFamiliaPagamentos.nomeBeneficiario})`,
+                valorParcela: sql`values(${BolsaFamiliaPagamentos.valorParcela})`,
+                exercicioReferencia: sql`values(${BolsaFamiliaPagamentos.exercicioReferencia})`,
+                mesReferencia: sql`values(${BolsaFamiliaPagamentos.mesReferencia})`,
+                diaReferencia: sql`values(${BolsaFamiliaPagamentos.diaReferencia})`,
+                dadosAdicionais: sql`values(${BolsaFamiliaPagamentos.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: BolsaFamiliaPagamentosRow[] = [];
@@ -46,7 +63,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -83,7 +103,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -112,7 +133,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
