@@ -39,9 +39,9 @@ import { runViagensIngestion } from "./processors/viagens.js";
 
 export async function runProcessors() {
     // BENEFÍCIOS AO CIDADÃO
-    await runAuxilioBrasilIngestion();
+    //await runAuxilioBrasilIngestion();
     //await runAuxilioEmergencialIngestion();
-    //await runAuxilioReconstrucaoIngestion();
+    await runAuxilioReconstrucaoIngestion();
     //await runBolsaPagamentosFamiliaIngestion();
     //await runBolsaFamiliaSaqueIngestion();
     //await runNovoBolsaFamiliaIngestion();

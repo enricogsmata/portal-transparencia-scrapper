@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Bpc } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,34 @@ type BpcRow = typeof Bpc.$inferInsert;
 async function persistData(data: BpcRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(Bpc).values(data);
+        await bronze_db.insert(Bpc).values(data).onDuplicateKeyUpdate({
+            set: {
+                mesCompetencia: sql`values(${Bpc.mesCompetencia})`,
+                mesReferencia: sql`values(${Bpc.mesReferencia})`,
+                uf: sql`values(${Bpc.uf})`,
+                codigoMunicipioSiafi: sql`values(${Bpc.codigoMunicipioSiafi})`,
+                nomeMunicipio: sql`values(${Bpc.nomeMunicipio})`,
+                nisBeneficiario: sql`values(${Bpc.nisBeneficiario})`,
+                cpfBeneficiario: sql`values(${Bpc.cpfBeneficiario})`,
+                nomeBeneficiario: sql`values(${Bpc.nomeBeneficiario})`,
+                nisRepresentanteLegal: sql`values(${Bpc.nisRepresentanteLegal})`,
+                cpfRepresentanteLegal: sql`values(${Bpc.cpfRepresentanteLegal})`,
+                nomeRepresentanteLegal: sql`values(${Bpc.nomeRepresentanteLegal})`,
+                numeroBeneficio: sql`values(${Bpc.numeroBeneficio})`,
+                concedidoJudicialmente: sql`values(${Bpc.concedidoJudicialmente})`,
+                valorParcela: sql`values(${Bpc.valorParcela})`,
+                exercicioReferencia: sql`values(${Bpc.exercicioReferencia})`,
+                diaReferencia: sql`values(${Bpc.diaReferencia})`,
+                dadosAdicionais: sql`values(${Bpc.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: BpcRow[] = [];
@@ -51,7 +72,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -88,7 +112,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -117,7 +142,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
