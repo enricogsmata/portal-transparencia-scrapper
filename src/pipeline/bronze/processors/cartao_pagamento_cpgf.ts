@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { CartaoPagamentoCpgf } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,36 @@ type CartaoPagamentoCpgfRow = typeof CartaoPagamentoCpgf.$inferInsert;
 async function persistData(data: CartaoPagamentoCpgfRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(CartaoPagamentoCpgf).values(data);
+        await bronze_db.insert(CartaoPagamentoCpgf).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoOrgaoSuperior: sql`values(${CartaoPagamentoCpgf.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${CartaoPagamentoCpgf.nomeOrgaoSuperior})`,
+                codigoOrgaoSubordinado: sql`values(${CartaoPagamentoCpgf.codigoOrgaoSubordinado})`,
+                nomeOrgaoSubordinado: sql`values(${CartaoPagamentoCpgf.nomeOrgaoSubordinado})`,
+                codigoUnidadeGestora: sql`values(${CartaoPagamentoCpgf.codigoUnidadeGestora})`,
+                nomeUnidadeGestora: sql`values(${CartaoPagamentoCpgf.nomeUnidadeGestora})`,
+                anoExtrato: sql`values(${CartaoPagamentoCpgf.anoExtrato})`,
+                mesExtrato: sql`values(${CartaoPagamentoCpgf.mesExtrato})`,
+                cpfPortador: sql`values(${CartaoPagamentoCpgf.cpfPortador})`,
+                nomePortador: sql`values(${CartaoPagamentoCpgf.nomePortador})`,
+                dataTransacao: sql`values(${CartaoPagamentoCpgf.dataTransacao})`,
+                valorTransacao: sql`values(${CartaoPagamentoCpgf.valorTransacao})`,
+                transacao: sql`values(${CartaoPagamentoCpgf.transacao})`,
+                nomeFavorecido: sql`values(${CartaoPagamentoCpgf.nomeFavorecido})`,
+                documentoFavorecido: sql`values(${CartaoPagamentoCpgf.documentoFavorecido})`,
+                exercicioReferencia: sql`values(${CartaoPagamentoCpgf.exercicioReferencia})`,
+                mesReferencia: sql`values(${CartaoPagamentoCpgf.mesReferencia})`,
+                diaReferencia: sql`values(${CartaoPagamentoCpgf.diaReferencia})`,
+                dadosAdicionais: sql`values(${CartaoPagamentoCpgf.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: CartaoPagamentoCpgfRow[] = [];
@@ -32,41 +55,44 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase();
-                
+
                 if (h.includes('ÓRGÃO SUPERIOR') || h.includes('ORGAO SUPERIOR')) {
                     if (h.includes('CÓDIGO') || h.includes('CODIGO')) return 'codigoOrgaoSuperior';
                     if (h.includes('NOME')) return 'nomeOrgaoSuperior';
                 }
-                
+
                 if (h.includes('ÓRGÃO SUBORDINADO') || h.includes('ORGAO SUBORDINADO')) {
                     if (h.includes('CÓDIGO') || h.includes('CODIGO')) return 'codigoOrgaoSubordinado';
                     if (h.includes('NOME')) return 'nomeOrgaoSubordinado';
                 }
-                
+
                 if (h.includes('UNIDADE GESTORA')) {
                     if (h.includes('CÓDIGO') || h.includes('CODIGO')) return 'codigoUnidadeGestora';
                     if (h.includes('NOME')) return 'nomeUnidadeGestora';
                 }
-                
+
                 if (h.includes('ANO EXTRATO')) return 'anoExtrato';
                 if (h.includes('MÊS EXTRATO') || h.includes('MES EXTRATO')) return 'mesExtrato';
-                
+
                 if (h.includes('CPF PORTADOR')) return 'cpfPortador';
                 if (h.includes('NOME PORTADOR')) return 'nomePortador';
-                
+
                 if (h.includes('DATA TRANSAÇÃO') || h.includes('DATA TRANSACAO')) return 'dataTransacao';
                 if (h.includes('VALOR TRANSAÇÃO') || h.includes('VALOR TRANSACAO')) return 'valorTransacao';
                 if (h === 'TRANSAÇÃO' || h === 'TRANSACAO') return 'transacao';
-                
+
                 if (h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
                 if (h.includes('CNPJ') || h.includes('CPF DO FAVORECIDO') || h.includes('CPF FAVORECIDO')) return 'documentoFavorecido';
-                
+
                 return header.trim();
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -103,7 +129,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -132,7 +159,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
