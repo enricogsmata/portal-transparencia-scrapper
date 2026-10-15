@@ -164,7 +164,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runApoiamentosEmendasParlamentaresIngestion() {
     const log = logger.forMethod('runApoiamentosEmendasParlamentaresIngestion');
-    const moduleName = 'apoiamentos-emendas-parlamentares';
+    const moduleName = 'apoiamento-emendas-parlamentares-documentos';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

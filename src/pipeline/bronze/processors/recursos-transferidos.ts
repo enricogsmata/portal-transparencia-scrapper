@@ -221,7 +221,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runRecursosTransferidosIngestion() {
     const log = logger.forMethod('runRecursosTransferidosIngestion');
-    const moduleName = 'recursos-transferidos';
+    const moduleName = 'transferencias';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

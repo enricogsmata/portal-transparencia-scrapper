@@ -1,8 +1,8 @@
-// src/modules/emendas-parlamentares/processor.ts
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import {
@@ -10,7 +10,7 @@ import {
     EmendasParlamentaresConvenios,
     EmendasParlamentaresFavorecido
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -19,7 +19,42 @@ const BATCH_SIZE = 2000;
 async function persistEmendas(data: (typeof EmendasParlamentares.$inferInsert)[]) {
     const log = logger.forMethod('persistEmendas');
     try {
-        await bronze_db.insert(EmendasParlamentares).values(data);
+        await bronze_db.insert(EmendasParlamentares).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoEmenda: sql`values(${EmendasParlamentares.codigoEmenda})`,
+                anoEmenda: sql`values(${EmendasParlamentares.anoEmenda})`,
+                tipoEmenda: sql`values(${EmendasParlamentares.tipoEmenda})`,
+                codigoAutorEmenda: sql`values(${EmendasParlamentares.codigoAutorEmenda})`,
+                nomeAutorEmenda: sql`values(${EmendasParlamentares.nomeAutorEmenda})`,
+                numeroEmenda: sql`values(${EmendasParlamentares.numeroEmenda})`,
+                localidadeGasto: sql`values(${EmendasParlamentares.localidadeGasto})`,
+                codigoMunicipioIbge: sql`values(${EmendasParlamentares.codigoMunicipioIbge})`,
+                municipio: sql`values(${EmendasParlamentares.municipio})`,
+                codigoUfIbge: sql`values(${EmendasParlamentares.codigoUfIbge})`,
+                uf: sql`values(${EmendasParlamentares.uf})`,
+                regiao: sql`values(${EmendasParlamentares.regiao})`,
+                codigoFuncao: sql`values(${EmendasParlamentares.codigoFuncao})`,
+                nomeFuncao: sql`values(${EmendasParlamentares.nomeFuncao})`,
+                codigoSubfuncao: sql`values(${EmendasParlamentares.codigoSubfuncao})`,
+                nomeSubfuncao: sql`values(${EmendasParlamentares.nomeSubfuncao})`,
+                codigoPrograma: sql`values(${EmendasParlamentares.codigoPrograma})`,
+                nomePrograma: sql`values(${EmendasParlamentares.nomePrograma})`,
+                codigoAcao: sql`values(${EmendasParlamentares.codigoAcao})`,
+                nomeAcao: sql`values(${EmendasParlamentares.nomeAcao})`,
+                codigoPlanoOrcamentario: sql`values(${EmendasParlamentares.codigoPlanoOrcamentario})`,
+                nomePlanoOrcamentario: sql`values(${EmendasParlamentares.nomePlanoOrcamentario})`,
+                valorEmpenhado: sql`values(${EmendasParlamentares.valorEmpenhado})`,
+                valorLiquidado: sql`values(${EmendasParlamentares.valorLiquidado})`,
+                valorPago: sql`values(${EmendasParlamentares.valorPago})`,
+                valorRestosAPagarInscritos: sql`values(${EmendasParlamentares.valorRestosAPagarInscritos})`,
+                valorRestosAPagarCancelados: sql`values(${EmendasParlamentares.valorRestosAPagarCancelados})`,
+                valorRestosAPagarPagos: sql`values(${EmendasParlamentares.valorRestosAPagarPagos})`,
+                exercicioReferencia: sql`values(${EmendasParlamentares.exercicioReferencia})`,
+                mesReferencia: sql`values(${EmendasParlamentares.mesReferencia})`,
+                diaReferencia: sql`values(${EmendasParlamentares.diaReferencia})`,
+                dadosAdicionais: sql`values(${EmendasParlamentares.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Emendas Parlamentares`);
         throw error;
@@ -29,7 +64,26 @@ async function persistEmendas(data: (typeof EmendasParlamentares.$inferInsert)[]
 async function persistConvenios(data: (typeof EmendasParlamentaresConvenios.$inferInsert)[]) {
     const log = logger.forMethod('persistConvenios');
     try {
-        await bronze_db.insert(EmendasParlamentaresConvenios).values(data);
+        await bronze_db.insert(EmendasParlamentaresConvenios).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoEmenda: sql`values(${EmendasParlamentaresConvenios.codigoEmenda})`,
+                codigoFuncao: sql`values(${EmendasParlamentaresConvenios.codigoFuncao})`,
+                nomeFuncao: sql`values(${EmendasParlamentaresConvenios.nomeFuncao})`,
+                codigoSubfuncao: sql`values(${EmendasParlamentaresConvenios.codigoSubfuncao})`,
+                nomeSubfuncao: sql`values(${EmendasParlamentaresConvenios.nomeSubfuncao})`,
+                localidadeGasto: sql`values(${EmendasParlamentaresConvenios.localidadeGasto})`,
+                tipoEmenda: sql`values(${EmendasParlamentaresConvenios.tipoEmenda})`,
+                dataPublicacaoConvenio: sql`values(${EmendasParlamentaresConvenios.dataPublicacaoConvenio})`,
+                convenente: sql`values(${EmendasParlamentaresConvenios.convenente})`,
+                objetoConvenio: sql`values(${EmendasParlamentaresConvenios.objetoConvenio})`,
+                numeroConvenio: sql`values(${EmendasParlamentaresConvenios.numeroConvenio})`,
+                valorConvenio: sql`values(${EmendasParlamentaresConvenios.valorConvenio})`,
+                exercicioReferencia: sql`values(${EmendasParlamentaresConvenios.exercicioReferencia})`,
+                mesReferencia: sql`values(${EmendasParlamentaresConvenios.mesReferencia})`,
+                diaReferencia: sql`values(${EmendasParlamentaresConvenios.diaReferencia})`,
+                dadosAdicionais: sql`values(${EmendasParlamentaresConvenios.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Convênios de Emendas`);
         throw error;
@@ -39,14 +93,34 @@ async function persistConvenios(data: (typeof EmendasParlamentaresConvenios.$inf
 async function persistFavorecidos(data: (typeof EmendasParlamentaresFavorecido.$inferInsert)[]) {
     const log = logger.forMethod('persistFavorecidos');
     try {
-        await bronze_db.insert(EmendasParlamentaresFavorecido).values(data);
+        await bronze_db.insert(EmendasParlamentaresFavorecido).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoEmenda: sql`values(${EmendasParlamentaresFavorecido.codigoEmenda})`,
+                codigoAutorEmenda: sql`values(${EmendasParlamentaresFavorecido.codigoAutorEmenda})`,
+                nomeAutorEmenda: sql`values(${EmendasParlamentaresFavorecido.nomeAutorEmenda})`,
+                numeroEmenda: sql`values(${EmendasParlamentaresFavorecido.numeroEmenda})`,
+                tipoEmenda: sql`values(${EmendasParlamentaresFavorecido.tipoEmenda})`,
+                anoMes: sql`values(${EmendasParlamentaresFavorecido.anoMes})`,
+                codigoFavorecido: sql`values(${EmendasParlamentaresFavorecido.codigoFavorecido})`,
+                favorecido: sql`values(${EmendasParlamentaresFavorecido.favorecido})`,
+                naturezaJuridica: sql`values(${EmendasParlamentaresFavorecido.naturezaJuridica})`,
+                tipoFavorecido: sql`values(${EmendasParlamentaresFavorecido.tipoFavorecido})`,
+                ufFavorecido: sql`values(${EmendasParlamentaresFavorecido.ufFavorecido})`,
+                municipioFavorecido: sql`values(${EmendasParlamentaresFavorecido.municipioFavorecido})`,
+                valorRecebido: sql`values(${EmendasParlamentaresFavorecido.valorRecebido})`,
+                exercicioReferencia: sql`values(${EmendasParlamentaresFavorecido.exercicioReferencia})`,
+                mesReferencia: sql`values(${EmendasParlamentaresFavorecido.mesReferencia})`,
+                diaReferencia: sql`values(${EmendasParlamentaresFavorecido.diaReferencia})`,
+                dadosAdicionais: sql`values(${EmendasParlamentaresFavorecido.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Favorecidos de Emendas`);
         throw error;
     }
 }
 
-async function processEmendasStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processEmendasStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processEmendasStream');
     let batch: (typeof EmendasParlamentares.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -89,7 +163,10 @@ async function processEmendasStream(stream: NodeJS.ReadableStream): Promise<numb
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistEmendas(batch);
                 totalProcessed += batch.length;
@@ -109,7 +186,7 @@ async function processEmendasStream(stream: NodeJS.ReadableStream): Promise<numb
     }
 }
 
-async function processConveniosStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processConveniosStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processConveniosStream');
     let batch: (typeof EmendasParlamentaresConvenios.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -136,7 +213,10 @@ async function processConveniosStream(stream: NodeJS.ReadableStream): Promise<nu
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistConvenios(batch);
                 totalProcessed += batch.length;
@@ -156,7 +236,7 @@ async function processConveniosStream(stream: NodeJS.ReadableStream): Promise<nu
     }
 }
 
-async function processFavorecidosStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processFavorecidosStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processFavorecidosStream');
     let batch: (typeof EmendasParlamentaresFavorecido.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -184,7 +264,10 @@ async function processFavorecidosStream(stream: NodeJS.ReadableStream): Promise<
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistFavorecidos(batch);
                 totalProcessed += batch.length;
@@ -219,7 +302,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -252,11 +336,11 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             let rowsCount = 0;
 
                             if (upperName.includes('CONVENIOS')) {
-                                rowsCount = await processConveniosStream(readStream);
+                                rowsCount = await processConveniosStream(readStream, metadata);
                             } else if (upperName.includes('FAVORECIDO')) {
-                                rowsCount = await processFavorecidosStream(readStream);
+                                rowsCount = await processFavorecidosStream(readStream, metadata);
                             } else if (upperName.includes('EMENDASPARLAMENTARES.CSV') || upperName.match(/_EMENDAS\.CSV$/)) {
-                                rowsCount = await processEmendasStream(readStream);
+                                rowsCount = await processEmendasStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
                                 readStream.resume();

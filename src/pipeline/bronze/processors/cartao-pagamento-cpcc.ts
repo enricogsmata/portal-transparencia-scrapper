@@ -191,7 +191,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runCartaoPagamentoCpccIngestion() {
     const log = logger.forMethod('runCartaoPagamentoCpccIngestion');
-    const moduleName = 'cartao-pagamento-cpcc';
+    const moduleName = 'cpcc';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

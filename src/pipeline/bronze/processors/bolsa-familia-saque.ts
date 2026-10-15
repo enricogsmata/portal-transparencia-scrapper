@@ -167,7 +167,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runBolsaFamiliaSaqueIngestion() {
     const log = logger.forMethod('runBolsaFamiliaSaqueIngestion');
-    const moduleName = 'bolsa-familia-saque';
+    const moduleName = 'bolsa-familia-saques';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

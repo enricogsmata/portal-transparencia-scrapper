@@ -179,7 +179,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runCartaoPagamentoDefesaCivilIngestion() {
     const log = logger.forMethod('runCartaoPagamentoDefesaCivilIngestion');
-    const moduleName = 'cartao-pagamento-defesa-civil';
+    const moduleName = 'cpdc';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

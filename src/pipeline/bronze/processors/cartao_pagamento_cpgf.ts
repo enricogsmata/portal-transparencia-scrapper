@@ -191,7 +191,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runCartaoPagamentoCpgfIngestion() {
     const log = logger.forMethod('runCartaoPagamentoCpgfIngestion');
-    const moduleName = 'cartao-pagamento';
+    const moduleName = 'cpgf';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

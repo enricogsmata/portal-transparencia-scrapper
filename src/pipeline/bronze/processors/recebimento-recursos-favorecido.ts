@@ -173,7 +173,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runRecebimentoRecursosFavorecidoIngestion() {
     const log = logger.forMethod('runRecebimentoRecursosFavorecidoIngestion');
-    const moduleName = 'recebimento-recursos-favorecido';
+    const moduleName = 'despesas-favorecidos';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');

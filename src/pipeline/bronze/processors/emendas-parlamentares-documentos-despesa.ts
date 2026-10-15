@@ -1,12 +1,12 @@
-// src/modules/emendas-parlamentares-documentos-despesa/processor.ts
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { EmendasParlamentaresDocumentosDespesa } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -15,14 +15,69 @@ type EmendasParlamentaresDocumentosDespesaRow = typeof EmendasParlamentaresDocum
 async function persistData(data: EmendasParlamentaresDocumentosDespesaRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(EmendasParlamentaresDocumentosDespesa).values(data);
+        await bronze_db.insert(EmendasParlamentaresDocumentosDespesa).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoEmenda: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoEmenda})`,
+                anoEmenda: sql`values(${EmendasParlamentaresDocumentosDespesa.anoEmenda})`,
+                codigoAutorEmenda: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoAutorEmenda})`,
+                nomeAutorEmenda: sql`values(${EmendasParlamentaresDocumentosDespesa.nomeAutorEmenda})`,
+                numeroEmenda: sql`values(${EmendasParlamentaresDocumentosDespesa.numeroEmenda})`,
+                codigoFuncao: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoFuncao})`,
+                valorEmpenhado: sql`values(${EmendasParlamentaresDocumentosDespesa.valorEmpenhado})`,
+                valorPago: sql`values(${EmendasParlamentaresDocumentosDespesa.valorPago})`,
+                tipoEmenda: sql`values(${EmendasParlamentaresDocumentosDespesa.tipoEmenda})`,
+                dataDocumento: sql`values(${EmendasParlamentaresDocumentosDespesa.dataDocumento})`,
+                codigoDocumento: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoDocumento})`,
+                localidadeAplicacaoRecurso: sql`values(${EmendasParlamentaresDocumentosDespesa.localidadeAplicacaoRecurso})`,
+                ufAplicacaoRecurso: sql`values(${EmendasParlamentaresDocumentosDespesa.ufAplicacaoRecurso})`,
+                municipioAplicacaoRecurso: sql`values(${EmendasParlamentaresDocumentosDespesa.municipioAplicacaoRecurso})`,
+                codigoIbgeMunicipioAplicacaoRecurso: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoIbgeMunicipioAplicacaoRecurso})`,
+                faseDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.faseDespesa})`,
+                codigoFavorecido: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoFavorecido})`,
+                favorecido: sql`values(${EmendasParlamentaresDocumentosDespesa.favorecido})`,
+                tipoFavorecido: sql`values(${EmendasParlamentaresDocumentosDespesa.tipoFavorecido})`,
+                ufFavorecido: sql`values(${EmendasParlamentaresDocumentosDespesa.ufFavorecido})`,
+                municipioFavorecido: sql`values(${EmendasParlamentaresDocumentosDespesa.municipioFavorecido})`,
+                codigoUg: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoUg})`,
+                ug: sql`values(${EmendasParlamentaresDocumentosDespesa.ug})`,
+                codigoUnidadeOrcamentaria: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoUnidadeOrcamentaria})`,
+                unidadeOrcamentaria: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoUnidadeOrcamentaria})`,
+                codigoOrgaoSiafi: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoOrgaoSiafi})`,
+                orgao: sql`values(${EmendasParlamentaresDocumentosDespesa.orgao})`,
+                codigoOrgaoSuperiorSiafi: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoOrgaoSuperiorSiafi})`,
+                orgaoSuperior: sql`values(${EmendasParlamentaresDocumentosDespesa.orgaoSuperior})`,
+                codigoGrupoDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoGrupoDespesa})`,
+                grupoDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.grupoDespesa})`,
+                codigoElementoDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoElementoDespesa})`,
+                elementoDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.elementoDespesa})`,
+                codigoModalidadeAplicacaoDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoModalidadeAplicacaoDespesa})`,
+                modalidadeAplicacaoDespesa: sql`values(${EmendasParlamentaresDocumentosDespesa.modalidadeAplicacaoDespesa})`,
+                codigoPlanoOrcamentario: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoPlanoOrcamentario})`,
+                planoOrcamentario: sql`values(${EmendasParlamentaresDocumentosDespesa.planoOrcamentario})`,
+                funcao: sql`values(${EmendasParlamentaresDocumentosDespesa.funcao})`,
+                codigoSubfuncao: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoSubfuncao})`,
+                subfuncao: sql`values(${EmendasParlamentaresDocumentosDespesa.subfuncao})`,
+                codigoPrograma: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoPrograma})`,
+                programa: sql`values(${EmendasParlamentaresDocumentosDespesa.programa})`,
+                codigoAcao: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoAcao})`,
+                acao: sql`values(${EmendasParlamentaresDocumentosDespesa.acao})`,
+                linguagemCidada: sql`values(${EmendasParlamentaresDocumentosDespesa.linguagemCidada})`,
+                codigoSubtituloLocalizador: sql`values(${EmendasParlamentaresDocumentosDespesa.codigoSubtituloLocalizador})`,
+                subtituloLocalizador: sql`values(${EmendasParlamentaresDocumentosDespesa.subtituloLocalizador})`,
+                possuiConvenio: sql`values(${EmendasParlamentaresDocumentosDespesa.possuiConvenio})`,
+                exercicioReferencia: sql`values(${EmendasParlamentaresDocumentosDespesa.exercicioReferencia})`,
+                mesReferencia: sql`values(${EmendasParlamentaresDocumentosDespesa.mesReferencia})`,
+                diaReferencia: sql`values(${EmendasParlamentaresDocumentosDespesa.diaReferencia})`,
+                dadosAdicionais: sql`values(${EmendasParlamentaresDocumentosDespesa.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: EmendasParlamentaresDocumentosDespesaRow[] = [];
@@ -88,7 +143,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -125,7 +183,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -154,7 +213,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);
@@ -186,7 +245,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
 export async function runEmendasParlamentaresDocumentosDespesaIngestion() {
     const log = logger.forMethod('runEmendasParlamentaresDocumentosDespesaIngestion');
-    const moduleName = 'emendas-parlamentares-documentos-despesa';
+    const moduleName = 'emendas-parlamentares-documentos';
 
     try {
         log.info({ data: { moduleName } }, 'Iniciando ingestão do módulo');
