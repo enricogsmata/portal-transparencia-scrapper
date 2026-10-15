@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { 
     ImoveisFuncionais, 
     ImoveisFuncionaisPermissionarios 
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -17,7 +18,17 @@ const BATCH_SIZE = 2000;
 async function persistImoveisFuncionais(data: (typeof ImoveisFuncionais.$inferInsert)[]) {
     const log = logger.forMethod('persistImoveisFuncionais');
     try {
-        await bronze_db.insert(ImoveisFuncionais).values(data);
+        await bronze_db.insert(ImoveisFuncionais).values(data).onDuplicateKeyUpdate({
+            set: {
+                endereco: sql`values(${ImoveisFuncionais.endereco})`,
+                orgaoResponsavel: sql`values(${ImoveisFuncionais.orgaoResponsavel})`,
+                situacao: sql`values(${ImoveisFuncionais.situacao})`,
+                exercicioReferencia: sql`values(${ImoveisFuncionais.exercicioReferencia})`,
+                mesReferencia: sql`values(${ImoveisFuncionais.mesReferencia})`,
+                diaReferencia: sql`values(${ImoveisFuncionais.diaReferencia})`,
+                dadosAdicionais: sql`values(${ImoveisFuncionais.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Imóveis Funcionais`);
         throw error;
@@ -27,14 +38,26 @@ async function persistImoveisFuncionais(data: (typeof ImoveisFuncionais.$inferIn
 async function persistPermissionarios(data: (typeof ImoveisFuncionaisPermissionarios.$inferInsert)[]) {
     const log = logger.forMethod('persistPermissionarios');
     try {
-        await bronze_db.insert(ImoveisFuncionaisPermissionarios).values(data);
+        await bronze_db.insert(ImoveisFuncionaisPermissionarios).values(data).onDuplicateKeyUpdate({
+            set: {
+                nomePermissionario: sql`values(${ImoveisFuncionaisPermissionarios.nomePermissionario})`,
+                cpf: sql`values(${ImoveisFuncionaisPermissionarios.cpf})`,
+                cargoFuncao: sql`values(${ImoveisFuncionaisPermissionarios.cargoFuncao})`,
+                orgaoExercicio: sql`values(${ImoveisFuncionaisPermissionarios.orgaoExercicio})`,
+                dataOcupacao: sql`values(${ImoveisFuncionaisPermissionarios.dataOcupacao})`,
+                exercicioReferencia: sql`values(${ImoveisFuncionaisPermissionarios.exercicioReferencia})`,
+                mesReferencia: sql`values(${ImoveisFuncionaisPermissionarios.mesReferencia})`,
+                diaReferencia: sql`values(${ImoveisFuncionaisPermissionarios.diaReferencia})`,
+                dadosAdicionais: sql`values(${ImoveisFuncionaisPermissionarios.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Permissionários de Imóveis Funcionais`);
         throw error;
     }
 }
 
-async function processImoveisFuncionaisStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processImoveisFuncionaisStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processImoveisFuncionaisStream');
     let batch: (typeof ImoveisFuncionais.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -52,7 +75,10 @@ async function processImoveisFuncionaisStream(stream: NodeJS.ReadableStream): Pr
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistImoveisFuncionais(batch);
                 totalProcessed += batch.length;
@@ -72,7 +98,7 @@ async function processImoveisFuncionaisStream(stream: NodeJS.ReadableStream): Pr
     }
 }
 
-async function processPermissionariosStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processPermissionariosStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processPermissionariosStream');
     let batch: (typeof ImoveisFuncionaisPermissionarios.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -92,7 +118,10 @@ async function processPermissionariosStream(stream: NodeJS.ReadableStream): Prom
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistPermissionarios(batch);
                 totalProcessed += batch.length;
@@ -127,7 +156,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -160,9 +190,9 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             let rowsCount = 0;
                             
                             if (upperName.includes('PERMISSIONARIOS') || upperName.includes('PERMISSIONÁRIOS')) {
-                                rowsCount = await processPermissionariosStream(readStream);
+                                rowsCount = await processPermissionariosStream(readStream, metadata);
                             } else if (upperName.includes('IMOVEIS') || upperName.includes('IMÓVEIS')) {
-                                rowsCount = await processImoveisFuncionaisStream(readStream);
+                                rowsCount = await processImoveisFuncionaisStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
                                 readStream.resume(); 

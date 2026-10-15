@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import {
@@ -14,7 +15,7 @@ import {
     ServidoresJetons,
     ServidoresRemuneracao
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -22,7 +23,15 @@ const BATCH_SIZE = 2000;
 async function persistData(schema: any, data: any[], logPrefix: string) {
     const log = logger.forMethod(`persistData:${logPrefix}`);
     try {
-        await bronze_db.insert(schema).values(data);
+        const columns = Object.keys(data[0] || {});
+        const updateSet: Record<string, any> = {};
+        for (const col of columns) {
+            updateSet[col] = sql`values(${schema[col]})`;
+        }
+
+        await bronze_db.insert(schema).values(data).onDuplicateKeyUpdate({
+            set: updateSet,
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de ${logPrefix}`);
         throw error;
@@ -31,7 +40,7 @@ async function persistData(schema: any, data: any[], logPrefix: string) {
 
 function mapHeaders(header: string): string {
     const h = header.toUpperCase().trim();
-    
+
     if (h === 'ANO') return 'ano';
     if (h === 'MÊS' || h === 'MES') return 'mes';
     if (h === 'ID_SERVIDOR_PORTAL') return 'idServidorPortal';
@@ -151,11 +160,11 @@ function mapHeaders(header: string): string {
 
     // fallback mapping common fixes
     if (h === 'OBSERVAÇÕES') return 'observacoes';
-    
+
     return header.trim();
 }
 
-async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, logPrefix: string): Promise<number> {
+async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, logPrefix: string, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod(`processGenericStream:${logPrefix}`);
     let batch: any[] = [];
     let totalProcessed = 0;
@@ -167,7 +176,10 @@ async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, 
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistData(schema, batch, logPrefix);
                 totalProcessed += batch.length;
@@ -178,7 +190,7 @@ async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, 
             await persistData(schema, batch, logPrefix);
             totalProcessed += batch.length;
         }
-        
+
         log.info({ data: { rowsProcessed: totalProcessed } }, `Processamento de ${logPrefix} concluído`);
         return totalProcessed;
     } catch (error) {
@@ -202,7 +214,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -236,28 +249,28 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             let rowsCount = 0;
 
                             if (upperFileName.includes('AFASTAMENTOS')) {
-                                rowsCount = await processGenericStream(readStream, ServidoresAfastamentos, 'Afastamentos');
+                                rowsCount = await processGenericStream(readStream, ServidoresAfastamentos, 'Afastamentos', metadata);
                             } else if (upperFileName.includes('OBSERVACOES') || upperFileName.includes('OBSERVAÇÕES')) {
-                                rowsCount = await processGenericStream(readStream, ServidoresObservacoes, 'Observacoes');
+                                rowsCount = await processGenericStream(readStream, ServidoresObservacoes, 'Observacoes', metadata);
                             } else if (upperFileName.includes('HONORARIOSADVOCATICIOS') || upperFileName.includes('HONORARIOS_ADVOCATICIOS')) {
-                                rowsCount = await processGenericStream(readStream, ServidoresHonorariosAdvocaticios, 'HonorariosAdvocaticios');
+                                rowsCount = await processGenericStream(readStream, ServidoresHonorariosAdvocaticios, 'HonorariosAdvocaticios', metadata);
                             } else if (upperFileName.includes('JETONS') || upperFileName.includes('HONORARIOS(JETONS)')) {
-                                rowsCount = await processGenericStream(readStream, ServidoresJetons, 'Jetons');
+                                rowsCount = await processGenericStream(readStream, ServidoresJetons, 'Jetons', metadata);
                             } else if (upperFileName.includes('REMUNERACAO') || upperFileName.includes('REMUNERAÇÃO')) {
-                                rowsCount = await processGenericStream(readStream, ServidoresRemuneracao, 'Remuneracao');
+                                rowsCount = await processGenericStream(readStream, ServidoresRemuneracao, 'Remuneracao', metadata);
                             } else if (upperFileName.includes('CADASTRO')) {
                                 if (upperZipName.includes('PENSIONISTAS')) {
-                                    rowsCount = await processGenericStream(readStream, PensionistasCadastro, 'PensionistasCadastro');
+                                    rowsCount = await processGenericStream(readStream, PensionistasCadastro, 'PensionistasCadastro', metadata);
                                 } else if (upperZipName.includes('APOSENTADOS') || upperZipName.includes('RESERVA_REFORMA')) {
-                                    rowsCount = await processGenericStream(readStream, AposentadosCadastro, 'AposentadosCadastro');
+                                    rowsCount = await processGenericStream(readStream, AposentadosCadastro, 'AposentadosCadastro', metadata);
                                 } else {
-                                    rowsCount = await processGenericStream(readStream, ServidoresCadastro, 'ServidoresCadastro');
+                                    rowsCount = await processGenericStream(readStream, ServidoresCadastro, 'ServidoresCadastro', metadata);
                                 }
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

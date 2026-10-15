@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Pep } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -15,14 +16,30 @@ type PepRow = typeof Pep.$inferInsert;
 async function persistData(data: PepRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(Pep).values(data);
+        await bronze_db.insert(Pep).values(data).onDuplicateKeyUpdate({
+            set: {
+                cpf: sql`values(${Pep.cpf})`,
+                nomePep: sql`values(${Pep.nomePep})`,
+                siglaFuncao: sql`values(${Pep.siglaFuncao})`,
+                descricaoFuncao: sql`values(${Pep.descricaoFuncao})`,
+                nivelFuncao: sql`values(${Pep.nivelFuncao})`,
+                nomeOrgao: sql`values(${Pep.nomeOrgao})`,
+                dataInicioExercicio: sql`values(${Pep.dataInicioExercicio})`,
+                dataFimExercicio: sql`values(${Pep.dataFimExercicio})`,
+                dataFimCarencia: sql`values(${Pep.dataFimCarencia})`,
+                exercicioReferencia: sql`values(${Pep.exercicioReferencia})`,
+                mesReferencia: sql`values(${Pep.mesReferencia})`,
+                diaReferencia: sql`values(${Pep.diaReferencia})`,
+                dadosAdicionais: sql`values(${Pep.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de PEP`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: PepRow[] = [];
     let totalProcessed = 0;
@@ -32,7 +49,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h === 'CPF') return 'cpf';
                 if (h.includes('NOME_PEP') || h === 'NOME PEP' || h === 'NOME_PEP') return 'nomePep';
                 if (h.includes('SIGLA_FUNÇÃO') || h.includes('SIGLA FUNCAO') || h.includes('SIGLA_FUNCAO') || h.includes('SIGLA FUNÇÃO')) return 'siglaFuncao';
@@ -42,13 +59,16 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
                 if (h.includes('DATA_INÍCIO_EXERCÍCIO') || h.includes('DATA INICIO EXERCICIO') || h.includes('DATA_INICIO_EXERCICIO') || h.includes('DATA INÍCIO EXERCÍCIO')) return 'dataInicioExercicio';
                 if (h.includes('DATA_FIM_EXERCÍCIO') || h.includes('DATA FIM EXERCICIO') || h.includes('DATA_FIM_EXERCICIO') || h.includes('DATA FIM EXERCÍCIO')) return 'dataFimExercicio';
                 if (h.includes('DATA_FIM_CARÊNCIA') || h.includes('DATA FIM CARENCIA') || h.includes('DATA_FIM_CARENCIA') || h.includes('DATA FIM CARÊNCIA')) return 'dataFimCarencia';
-                
+
                 return h;
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -85,7 +105,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -116,14 +137,14 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('PEP')) {
-                                rowsCount = await processCsvStream(readStream);
+                                rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

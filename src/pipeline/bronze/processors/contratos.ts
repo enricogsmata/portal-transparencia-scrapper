@@ -2,15 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
-import { 
-    ContratosCompras, 
-    ContratosItemCompra, 
-    ContratosTermoAditivo, 
-    ContratosApostilamento 
+import {
+    ContratosCompras,
+    ContratosItemCompra,
+    ContratosTermoAditivo,
+    ContratosApostilamento
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -19,7 +20,38 @@ const BATCH_SIZE = 2000;
 async function persistCompras(data: (typeof ContratosCompras.$inferInsert)[]) {
     const log = logger.forMethod('persistCompras');
     try {
-        await bronze_db.insert(ContratosCompras).values(data);
+        await bronze_db.insert(ContratosCompras).values(data).onDuplicateKeyUpdate({
+            set: {
+                numeroContrato: sql`values(${ContratosCompras.numeroContrato})`,
+                objeto: sql`values(${ContratosCompras.objeto})`,
+                fundamentoLegal: sql`values(${ContratosCompras.fundamentoLegal})`,
+                modalidadeCompra: sql`values(${ContratosCompras.modalidadeCompra})`,
+                situacaoContrato: sql`values(${ContratosCompras.situacaoContrato})`,
+                codigoOrgaoSuperior: sql`values(${ContratosCompras.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${ContratosCompras.nomeOrgaoSuperior})`,
+                codigoOrgao: sql`values(${ContratosCompras.codigoOrgao})`,
+                nomeOrgao: sql`values(${ContratosCompras.nomeOrgao})`,
+                codigoUg: sql`values(${ContratosCompras.codigoUg})`,
+                nomeUg: sql`values(${ContratosCompras.nomeUg})`,
+                dataAssinaturaContrato: sql`values(${ContratosCompras.dataAssinaturaContrato})`,
+                dataPublicacaoDou: sql`values(${ContratosCompras.dataPublicacaoDou})`,
+                dataInicioVigencia: sql`values(${ContratosCompras.dataInicioVigencia})`,
+                dataFimVigencia: sql`values(${ContratosCompras.dataFimVigencia})`,
+                codigoContratado: sql`values(${ContratosCompras.codigoContratado})`,
+                nomeContratado: sql`values(${ContratosCompras.nomeContratado})`,
+                valorInicialCompra: sql`values(${ContratosCompras.valorInicialCompra})`,
+                valorFinalCompra: sql`values(${ContratosCompras.valorFinalCompra})`,
+                numeroLicitacao: sql`values(${ContratosCompras.numeroLicitacao})`,
+                codigoUgLicitacao: sql`values(${ContratosCompras.codigoUgLicitacao})`,
+                nomeUgLicitacao: sql`values(${ContratosCompras.nomeUgLicitacao})`,
+                codigoModalidadeCompraLicitacao: sql`values(${ContratosCompras.codigoModalidadeCompraLicitacao})`,
+                modalidadeCompraLicitacao: sql`values(${ContratosCompras.modalidadeCompraLicitacao})`,
+                exercicioReferencia: sql`values(${ContratosCompras.exercicioReferencia})`,
+                mesReferencia: sql`values(${ContratosCompras.mesReferencia})`,
+                diaReferencia: sql`values(${ContratosCompras.diaReferencia})`,
+                dadosAdicionais: sql`values(${ContratosCompras.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Compras`);
         throw error;
@@ -29,7 +61,23 @@ async function persistCompras(data: (typeof ContratosCompras.$inferInsert)[]) {
 async function persistItemCompra(data: (typeof ContratosItemCompra.$inferInsert)[]) {
     const log = logger.forMethod('persistItemCompra');
     try {
-        await bronze_db.insert(ContratosItemCompra).values(data);
+        await bronze_db.insert(ContratosItemCompra).values(data).onDuplicateKeyUpdate({
+            set: {
+                numeroContrato: sql`values(${ContratosItemCompra.numeroContrato})`,
+                codigoOrgao: sql`values(${ContratosItemCompra.codigoOrgao})`,
+                nomeOrgao: sql`values(${ContratosItemCompra.nomeOrgao})`,
+                codigoUg: sql`values(${ContratosItemCompra.codigoUg})`,
+                nomeUg: sql`values(${ContratosItemCompra.nomeUg})`,
+                codigoItemCompra: sql`values(${ContratosItemCompra.codigoItemCompra})`,
+                descricaoItemCompra: sql`values(${ContratosItemCompra.descricaoItemCompra})`,
+                quantidadeItem: sql`values(${ContratosItemCompra.quantidadeItem})`,
+                valorItem: sql`values(${ContratosItemCompra.valorItem})`,
+                exercicioReferencia: sql`values(${ContratosItemCompra.exercicioReferencia})`,
+                mesReferencia: sql`values(${ContratosItemCompra.mesReferencia})`,
+                diaReferencia: sql`values(${ContratosItemCompra.diaReferencia})`,
+                dadosAdicionais: sql`values(${ContratosItemCompra.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Item Compra`);
         throw error;
@@ -39,7 +87,24 @@ async function persistItemCompra(data: (typeof ContratosItemCompra.$inferInsert)
 async function persistTermoAditivo(data: (typeof ContratosTermoAditivo.$inferInsert)[]) {
     const log = logger.forMethod('persistTermoAditivo');
     try {
-        await bronze_db.insert(ContratosTermoAditivo).values(data);
+        await bronze_db.insert(ContratosTermoAditivo).values(data).onDuplicateKeyUpdate({
+            set: {
+                numeroContrato: sql`values(${ContratosTermoAditivo.numeroContrato})`,
+                codigoOrgaoSuperior: sql`values(${ContratosTermoAditivo.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${ContratosTermoAditivo.nomeOrgaoSuperior})`,
+                codigoOrgao: sql`values(${ContratosTermoAditivo.codigoOrgao})`,
+                nomeOrgao: sql`values(${ContratosTermoAditivo.nomeOrgao})`,
+                codigoUg: sql`values(${ContratosTermoAditivo.codigoUg})`,
+                nomeUg: sql`values(${ContratosTermoAditivo.nomeUg})`,
+                numeroTermoAditivo: sql`values(${ContratosTermoAditivo.numeroTermoAditivo})`,
+                dataPublicacao: sql`values(${ContratosTermoAditivo.dataPublicacao})`,
+                objeto: sql`values(${ContratosTermoAditivo.objeto})`,
+                exercicioReferencia: sql`values(${ContratosTermoAditivo.exercicioReferencia})`,
+                mesReferencia: sql`values(${ContratosTermoAditivo.mesReferencia})`,
+                diaReferencia: sql`values(${ContratosTermoAditivo.diaReferencia})`,
+                dadosAdicionais: sql`values(${ContratosTermoAditivo.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Termo Aditivo`);
         throw error;
@@ -49,14 +114,33 @@ async function persistTermoAditivo(data: (typeof ContratosTermoAditivo.$inferIns
 async function persistApostilamento(data: (typeof ContratosApostilamento.$inferInsert)[]) {
     const log = logger.forMethod('persistApostilamento');
     try {
-        await bronze_db.insert(ContratosApostilamento).values(data);
+        await bronze_db.insert(ContratosApostilamento).values(data).onDuplicateKeyUpdate({
+            set: {
+                numeroContrato: sql`values(${ContratosApostilamento.numeroContrato})`,
+                codigoOrgaoSuperior: sql`values(${ContratosApostilamento.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${ContratosApostilamento.nomeOrgaoSuperior})`,
+                codigoOrgao: sql`values(${ContratosApostilamento.codigoOrgao})`,
+                nomeOrgao: sql`values(${ContratosApostilamento.nomeOrgao})`,
+                codigoUg: sql`values(${ContratosApostilamento.codigoUg})`,
+                nomeUg: sql`values(${ContratosApostilamento.nomeUg})`,
+                numeroApostilamento: sql`values(${ContratosApostilamento.numeroApostilamento})`,
+                descricao: sql`values(${ContratosApostilamento.descricao})`,
+                valorApostilamento: sql`values(${ContratosApostilamento.valorApostilamento})`,
+                dataInclusao: sql`values(${ContratosApostilamento.dataInclusao})`,
+                situacaoApostilamento: sql`values(${ContratosApostilamento.situacaoApostilamento})`,
+                exercicioReferencia: sql`values(${ContratosApostilamento.exercicioReferencia})`,
+                mesReferencia: sql`values(${ContratosApostilamento.mesReferencia})`,
+                diaReferencia: sql`values(${ContratosApostilamento.diaReferencia})`,
+                dadosAdicionais: sql`values(${ContratosApostilamento.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Apostilamento`);
         throw error;
     }
 }
 
-async function processComprasStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processComprasStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processComprasStream');
     let batch: (typeof ContratosCompras.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -95,7 +179,10 @@ async function processComprasStream(stream: NodeJS.ReadableStream): Promise<numb
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistCompras(batch);
                 totalProcessed += batch.length;
@@ -113,7 +200,7 @@ async function processComprasStream(stream: NodeJS.ReadableStream): Promise<numb
     }
 }
 
-async function processItemCompraStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processItemCompraStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processItemCompraStream');
     let batch: (typeof ContratosItemCompra.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -137,7 +224,10 @@ async function processItemCompraStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistItemCompra(batch);
                 totalProcessed += batch.length;
@@ -155,7 +245,7 @@ async function processItemCompraStream(stream: NodeJS.ReadableStream): Promise<n
     }
 }
 
-async function processTermoAditivoStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processTermoAditivoStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processTermoAditivoStream');
     let batch: (typeof ContratosTermoAditivo.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -180,7 +270,10 @@ async function processTermoAditivoStream(stream: NodeJS.ReadableStream): Promise
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistTermoAditivo(batch);
                 totalProcessed += batch.length;
@@ -198,7 +291,7 @@ async function processTermoAditivoStream(stream: NodeJS.ReadableStream): Promise
     }
 }
 
-async function processApostilamentoStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processApostilamentoStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processApostilamentoStream');
     let batch: (typeof ContratosApostilamento.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -225,7 +318,10 @@ async function processApostilamentoStream(stream: NodeJS.ReadableStream): Promis
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistApostilamento(batch);
                 totalProcessed += batch.length;
@@ -258,7 +354,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -289,20 +386,20 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('APOSTILAMENTO')) {
-                                rowsCount = await processApostilamentoStream(readStream);
+                                rowsCount = await processApostilamentoStream(readStream, metadata);
                             } else if (upperName.includes('TERMOADITIVO') || upperName.includes('TERMO_ADITIVO')) {
-                                rowsCount = await processTermoAditivoStream(readStream);
+                                rowsCount = await processTermoAditivoStream(readStream, metadata);
                             } else if (upperName.includes('ITEMCOMPRA') || upperName.includes('ITEM_COMPRA') || upperName.includes('ITEM_DE_COMPRA')) {
-                                rowsCount = await processItemCompraStream(readStream);
+                                rowsCount = await processItemCompraStream(readStream, metadata);
                             } else if (upperName.includes('COMPRAS')) {
-                                rowsCount = await processComprasStream(readStream);
+                                rowsCount = await processComprasStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

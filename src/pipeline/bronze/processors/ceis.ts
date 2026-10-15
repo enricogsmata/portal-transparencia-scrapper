@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Ceis } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,45 @@ const BATCH_SIZE = 2000;
 async function persistCeis(data: (typeof Ceis.$inferInsert)[]) {
     const log = logger.forMethod('persistCeis');
     try {
-        await bronze_db.insert(Ceis).values(data);
+        await bronze_db.insert(Ceis).values(data).onDuplicateKeyUpdate({
+            set: {
+                cadastro: sql`values(${Ceis.cadastro})`,
+                codigoSancao: sql`values(${Ceis.codigoSancao})`,
+                tipoPessoa: sql`values(${Ceis.tipoPessoa})`,
+                cpfCnpjSancionado: sql`values(${Ceis.cpfCnpjSancionado})`,
+                nomeSancionado: sql`values(${Ceis.nomeSancionado})`,
+                nomeInformadoOrgaoSancionador: sql`values(${Ceis.nomeInformadoOrgaoSancionador})`,
+                razaoSocialCadastroReceita: sql`values(${Ceis.razaoSocialCadastroReceita})`,
+                nomeFantasiaCadastroReceita: sql`values(${Ceis.nomeFantasiaCadastroReceita})`,
+                numeroProcesso: sql`values(${Ceis.numeroProcesso})`,
+                categoriaSancao: sql`values(${Ceis.categoriaSancao})`,
+                dataInicioSancao: sql`values(${Ceis.dataInicioSancao})`,
+                dataFinalSancao: sql`values(${Ceis.dataFinalSancao})`,
+                dataPublicacao: sql`values(${Ceis.dataPublicacao})`,
+                publicacao: sql`values(${Ceis.publicacao})`,
+                detalhamentoMeioPublicacao: sql`values(${Ceis.detalhamentoMeioPublicacao})`,
+                dataTransitoJulgado: sql`values(${Ceis.dataTransitoJulgado})`,
+                abrangenciaSancao: sql`values(${Ceis.abrangenciaSancao})`,
+                orgaoSancionador: sql`values(${Ceis.orgaoSancionador})`,
+                ufOrgaoSancionador: sql`values(${Ceis.ufOrgaoSancionador})`,
+                esferaOrgaoSancionador: sql`values(${Ceis.esferaOrgaoSancionador})`,
+                fundamentacaoLegal: sql`values(${Ceis.fundamentacaoLegal})`,
+                dataOrigemInformacao: sql`values(${Ceis.dataOrigemInformacao})`,
+                origemInformacoes: sql`values(${Ceis.origemInformacoes})`,
+                observacoes: sql`values(${Ceis.observacoes})`,
+                exercicioReferencia: sql`values(${Ceis.exercicioReferencia})`,
+                mesReferencia: sql`values(${Ceis.mesReferencia})`,
+                diaReferencia: sql`values(${Ceis.diaReferencia})`,
+                dadosAdicionais: sql`values(${Ceis.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de CEIS`);
         throw error;
     }
 }
 
-async function processCeisStream(stream: NodeJS.ReadableStream): Promise<number> {
+async function processCeisStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCeisStream');
     let batch: (typeof Ceis.$inferInsert)[] = [];
     let totalProcessed = 0;
@@ -31,7 +63,7 @@ async function processCeisStream(stream: NodeJS.ReadableStream): Promise<number>
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h === 'CADASTRO') return 'cadastro';
                 if (h.includes('CÓDIGO DA SANÇÃO') || h.includes('CODIGO DA SANCAO')) return 'codigoSancao';
                 if (h.includes('TIPO DE PESSOA')) return 'tipoPessoa';
@@ -56,13 +88,16 @@ async function processCeisStream(stream: NodeJS.ReadableStream): Promise<number>
                 if (h.includes('DATA ORIGEM INFORMAÇÃO') || h.includes('DATA ORIGEM INFORMACAO')) return 'dataOrigemInformacao';
                 if (h.includes('ORIGEM INFORMAÇÕES') || h.includes('ORIGEM INFORMACOES')) return 'origemInformacoes';
                 if (h.includes('OBSERVAÇÕES') || h.includes('OBSERVACOES')) return 'observacoes';
-                
+
                 return h;
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistCeis(batch);
                 totalProcessed += batch.length;
@@ -97,7 +132,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -126,7 +162,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCeisStream(readStream);
+                            const rowsCount = await processCeisStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

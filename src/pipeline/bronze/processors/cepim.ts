@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Cepim } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -15,14 +16,26 @@ type CepimRow = typeof Cepim.$inferInsert;
 async function persistData(data: CepimRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(Cepim).values(data);
+        await bronze_db.insert(Cepim).values(data).onDuplicateKeyUpdate({
+            set: {
+                cnpjEntidade: sql`values(${Cepim.cnpjEntidade})`,
+                nomeEntidade: sql`values(${Cepim.nomeEntidade})`,
+                numeroConvenio: sql`values(${Cepim.numeroConvenio})`,
+                orgaoConcedente: sql`values(${Cepim.orgaoConcedente})`,
+                motivoImpedimento: sql`values(${Cepim.motivoImpedimento})`,
+                exercicioReferencia: sql`values(${Cepim.exercicioReferencia})`,
+                mesReferencia: sql`values(${Cepim.mesReferencia})`,
+                diaReferencia: sql`values(${Cepim.diaReferencia})`,
+                dadosAdicionais: sql`values(${Cepim.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de CEPIM`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: CepimRow[] = [];
     let totalProcessed = 0;
@@ -32,19 +45,22 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h === 'CNPJ ENTIDADE') return 'cnpjEntidade';
                 if (h === 'NOME ENTIDADE') return 'nomeEntidade';
                 if (h.includes('NÚMERO CONVÊNIO') || h.includes('NUMERO CONVENIO')) return 'numeroConvenio';
                 if (h.includes('ÓRGÃO CONCEDENTE') || h.includes('ORGAO CONCEDENTE')) return 'orgaoConcedente';
                 if (h.includes('MOTIVO DO IMPEDIMENTO') || h.includes('MOTIVO IMPEDIMENTO')) return 'motivoImpedimento';
-                
+
                 return h;
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -81,7 +97,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -112,14 +129,14 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('CEPIM')) {
-                                rowsCount = await processCsvStream(readStream);
+                                rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

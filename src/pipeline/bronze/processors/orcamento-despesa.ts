@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { OrcamentoDespesa } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -15,14 +16,51 @@ type OrcamentoDespesaRow = typeof OrcamentoDespesa.$inferInsert;
 async function persistData(data: OrcamentoDespesaRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(OrcamentoDespesa).values(data);
+        await bronze_db.insert(OrcamentoDespesa).values(data).onDuplicateKeyUpdate({
+            set: {
+                exercicio: sql`values(${OrcamentoDespesa.exercicio})`,
+                codigoOrgaoSuperior: sql`values(${OrcamentoDespesa.codigoOrgaoSuperior})`,
+                nomeOrgaoSuperior: sql`values(${OrcamentoDespesa.nomeOrgaoSuperior})`,
+                codigoOrgaoSubordinado: sql`values(${OrcamentoDespesa.codigoOrgaoSubordinado})`,
+                nomeOrgaoSubordinado: sql`values(${OrcamentoDespesa.nomeOrgaoSubordinado})`,
+                codigoUnidadeOrcamentaria: sql`values(${OrcamentoDespesa.codigoUnidadeOrcamentaria})`,
+                nomeUnidadeOrcamentaria: sql`values(${OrcamentoDespesa.nomeUnidadeOrcamentaria})`,
+                codigoFuncao: sql`values(${OrcamentoDespesa.codigoFuncao})`,
+                nomeFuncao: sql`values(${OrcamentoDespesa.nomeFuncao})`,
+                codigoSubfuncao: sql`values(${OrcamentoDespesa.codigoSubfuncao})`,
+                nomeSubfuncao: sql`values(${OrcamentoDespesa.nomeSubfuncao})`,
+                codigoProgramaOrcamentario: sql`values(${OrcamentoDespesa.codigoProgramaOrcamentario})`,
+                nomeProgramaOrcamentario: sql`values(${OrcamentoDespesa.nomeProgramaOrcamentario})`,
+                codigoAcao: sql`values(${OrcamentoDespesa.codigoAcao})`,
+                nomeAcao: sql`values(${OrcamentoDespesa.nomeAcao})`,
+                codigoPlanoOrcamentario: sql`values(${OrcamentoDespesa.codigoPlanoOrcamentario})`,
+                planoOrcamentario: sql`values(${OrcamentoDespesa.planoOrcamentario})`,
+                codigoProgramaGoverno: sql`values(${OrcamentoDespesa.codigoProgramaGoverno})`,
+                nomeProgramaGoverno: sql`values(${OrcamentoDespesa.nomeProgramaGoverno})`,
+                codigoCategoriaEconomica: sql`values(${OrcamentoDespesa.codigoCategoriaEconomica})`,
+                nomeCategoriaEconomica: sql`values(${OrcamentoDespesa.nomeCategoriaEconomica})`,
+                codigoGrupoDespesa: sql`values(${OrcamentoDespesa.codigoGrupoDespesa})`,
+                nomeGrupoDespesa: sql`values(${OrcamentoDespesa.nomeGrupoDespesa})`,
+                codigoElementoDespesa: sql`values(${OrcamentoDespesa.codigoElementoDespesa})`,
+                nomeElementoDespesa: sql`values(${OrcamentoDespesa.nomeElementoDespesa})`,
+                orcamentoInicial: sql`values(${OrcamentoDespesa.orcamentoInicial})`,
+                orcamentoAtualizado: sql`values(${OrcamentoDespesa.orcamentoAtualizado})`,
+                orcamentoEmpenhado: sql`values(${OrcamentoDespesa.orcamentoEmpenhado})`,
+                orcamentoRealizado: sql`values(${OrcamentoDespesa.orcamentoRealizado})`,
+                percentualRealizado: sql`values(${OrcamentoDespesa.percentualRealizado})`,
+                exercicioReferencia: sql`values(${OrcamentoDespesa.exercicioReferencia})`,
+                mesReferencia: sql`values(${OrcamentoDespesa.mesReferencia})`,
+                diaReferencia: sql`values(${OrcamentoDespesa.diaReferencia})`,
+                dadosAdicionais: sql`values(${OrcamentoDespesa.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Orçamento Despesa`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: OrcamentoDespesaRow[] = [];
     let totalProcessed = 0;
@@ -32,7 +70,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h === 'EXERCÍCIO' || h === 'EXERCICIO') return 'exercicio';
                 if (h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
                 if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
@@ -69,7 +107,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
                 totalProcessed += batch.length;
@@ -104,7 +145,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -135,14 +177,14 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('ORCAMENTO') || upperName.includes('ORÇAMENTO')) {
-                                rowsCount = await processCsvStream(readStream);
+                                rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

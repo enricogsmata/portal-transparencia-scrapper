@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import {
@@ -10,7 +11,7 @@ import {
     ViagensTrecho,
     ViagensViagem
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -18,7 +19,15 @@ const BATCH_SIZE = 2000;
 async function persistData(schema: any, data: any[], logPrefix: string) {
     const log = logger.forMethod(`persistData:${logPrefix}`);
     try {
-        await bronze_db.insert(schema).values(data);
+        const columns = Object.keys(data[0] || {});
+        const updateSet: Record<string, any> = {};
+        for (const col of columns) {
+            updateSet[col] = sql`values(${schema[col]})`;
+        }
+
+        await bronze_db.insert(schema).values(data).onDuplicateKeyUpdate({
+            set: updateSet,
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de ${logPrefix}`);
         throw error;
@@ -27,9 +36,9 @@ async function persistData(schema: any, data: any[], logPrefix: string) {
 
 function mapHeaders(header: string): string {
     const h = header.toUpperCase().trim();
-    
+
     if (h.includes('IDENTIFICADOR DO PROCESSO DE VIAGEM')) return 'identificadorProcessoViagem';
-    
+
     // Pagamento
     if (h.includes('CÓDIGO DO ÓRGÃO SUPERIOR') || h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
     if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR') || h.includes('NOME DO ÓRGÃO SUPERIOR')) return 'nomeOrgaoSuperior';
@@ -88,7 +97,7 @@ function mapHeaders(header: string): string {
     return header.trim();
 }
 
-async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, logPrefix: string): Promise<number> {
+async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, logPrefix: string, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod(`processGenericStream:${logPrefix}`);
     let batch: any[] = [];
     let totalProcessed = 0;
@@ -100,7 +109,10 @@ async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, 
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
             if (batch.length >= BATCH_SIZE) {
                 await persistData(schema, batch, logPrefix);
                 totalProcessed += batch.length;
@@ -111,7 +123,7 @@ async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, 
             await persistData(schema, batch, logPrefix);
             totalProcessed += batch.length;
         }
-        
+
         log.info({ data: { rowsProcessed: totalProcessed } }, `Processamento de ${logPrefix} concluído`);
         return totalProcessed;
     } catch (error) {
@@ -135,7 +147,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -168,18 +181,18 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             let rowsCount = 0;
 
                             if (upperFileName.includes('PAGAMENTO')) {
-                                rowsCount = await processGenericStream(readStream, ViagensPagamento, 'Pagamento');
+                                rowsCount = await processGenericStream(readStream, ViagensPagamento, 'Pagamento', metadata);
                             } else if (upperFileName.includes('PASSAGEM')) {
-                                rowsCount = await processGenericStream(readStream, ViagensPassagem, 'Passagem');
+                                rowsCount = await processGenericStream(readStream, ViagensPassagem, 'Passagem', metadata);
                             } else if (upperFileName.includes('TRECHO')) {
-                                rowsCount = await processGenericStream(readStream, ViagensTrecho, 'Trecho');
+                                rowsCount = await processGenericStream(readStream, ViagensTrecho, 'Trecho', metadata);
                             } else if (upperFileName.includes('VIAGEM')) {
-                                rowsCount = await processGenericStream(readStream, ViagensViagem, 'Viagem');
+                                rowsCount = await processGenericStream(readStream, ViagensViagem, 'Viagem', metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

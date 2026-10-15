@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { AcordosLeniencia } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -15,14 +16,33 @@ type AcordosLenienciaRow = typeof AcordosLeniencia.$inferInsert;
 async function persistData(data: AcordosLenienciaRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(AcordosLeniencia).values(data);
+        await bronze_db.insert(AcordosLeniencia).values(data).onDuplicateKeyUpdate({
+            set: {
+                cnpjSancionado: sql`values(${AcordosLeniencia.cnpjSancionado})`,
+                nomeInformadoOrgaoSancionador: sql`values(${AcordosLeniencia.nomeInformadoOrgaoSancionador})`,
+                razaoSocialCadastroReceita: sql`values(${AcordosLeniencia.razaoSocialCadastroReceita})`,
+                nomeFantasiaCadastroReceita: sql`values(${AcordosLeniencia.nomeFantasiaCadastroReceita})`,
+                numeroProcesso: sql`values(${AcordosLeniencia.numeroProcesso})`,
+                dataInicioAcordo: sql`values(${AcordosLeniencia.dataInicioAcordo})`,
+                dataConclusaoAcordo: sql`values(${AcordosLeniencia.dataConclusaoAcordo})`,
+                orgaoSancionador: sql`values(${AcordosLeniencia.orgaoSancionador})`,
+                ufSancionado: sql`values(${AcordosLeniencia.ufSancionado})`,
+                origemInformacoes: sql`values(${AcordosLeniencia.origemInformacoes})`,
+                situacaoAcordo: sql`values(${AcordosLeniencia.situacaoAcordo})`,
+                contatoOrigemInformacao: sql`values(${AcordosLeniencia.contatoOrigemInformacao})`,
+                exercicioReferencia: sql`values(${AcordosLeniencia.exercicioReferencia})`,
+                mesReferencia: sql`values(${AcordosLeniencia.mesReferencia})`,
+                diaReferencia: sql`values(${AcordosLeniencia.diaReferencia})`,
+                dadosAdicionais: sql`values(${AcordosLeniencia.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de Acordos de Leniência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: AcordosLenienciaRow[] = [];
     let totalProcessed = 0;
@@ -32,7 +52,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h.includes('CNPJ DO SANCIONADO') || h.includes('CNPJ SANCIONADO')) return 'cnpjSancionado';
                 if (h.includes('NOME INFORMADO PELO ÓRGÃO SANCIONADOR') || h.includes('NOME INFORMADO PELO ORGAO SANCIONADOR')) return 'nomeInformadoOrgaoSancionador';
                 if (h.includes('RAZÃO SOCIAL') || h.includes('RAZAO SOCIAL')) return 'razaoSocialCadastroReceita';
@@ -45,13 +65,16 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
                 if (h.includes('ORIGEM INFORMAÇÕES') || h.includes('ORIGEM INFORMACOES') || h.includes('ORIGEM INFORMAÇÃO')) return 'origemInformacoes';
                 if (h.includes('SITUAÇÃO DO ACORDO') || h.includes('SITUACAO DO ACORDO')) return 'situacaoAcordo';
                 if (h.includes('CONTATO DA ORIGEM DA INFORMAÇÃO') || h.includes('CONTATO DA ORIGEM DA INFORMACAO') || h.includes('CONTATO')) return 'contatoOrigemInformacao';
-                
+
                 return h;
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -88,7 +111,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -119,14 +143,14 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('ACORDO') || upperName.includes('LENIENCIA') || upperName.includes('LENIÊNCIA')) {
-                                rowsCount = await processCsvStream(readStream);
+                                rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Ceaf } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -15,14 +16,46 @@ type CeafRow = typeof Ceaf.$inferInsert;
 async function persistData(data: CeafRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(Ceaf).values(data);
+        await bronze_db.insert(Ceaf).values(data).onDuplicateKeyUpdate({
+            set: {
+                cadastro: sql`values(${Ceaf.cadastro})`,
+                codigoSancao: sql`values(${Ceaf.codigoSancao})`,
+                tipoPessoa: sql`values(${Ceaf.tipoPessoa})`,
+                cpfCnpjSancionado: sql`values(${Ceaf.cpfCnpjSancionado})`,
+                nomeSancionado: sql`values(${Ceaf.nomeSancionado})`,
+                categoriaSancao: sql`values(${Ceaf.categoriaSancao})`,
+                numeroDocumento: sql`values(${Ceaf.numeroDocumento})`,
+                numeroProcesso: sql`values(${Ceaf.numeroProcesso})`,
+                dataInicioSancao: sql`values(${Ceaf.dataInicioSancao})`,
+                dataFinalSancao: sql`values(${Ceaf.dataFinalSancao})`,
+                dataPublicacao: sql`values(${Ceaf.dataPublicacao})`,
+                publicacao: sql`values(${Ceaf.publicacao})`,
+                detalhamentoMeioPublicacao: sql`values(${Ceaf.detalhamentoMeioPublicacao})`,
+                dataTransitoJulgado: sql`values(${Ceaf.dataTransitoJulgado})`,
+                abrangenciaSancao: sql`values(${Ceaf.abrangenciaSancao})`,
+                cargoEfetivo: sql`values(${Ceaf.cargoEfetivo})`,
+                funcaoCargoConfianca: sql`values(${Ceaf.funcaoCargoConfianca})`,
+                orgaoLotacao: sql`values(${Ceaf.orgaoLotacao})`,
+                orgaoSancionador: sql`values(${Ceaf.orgaoSancionador})`,
+                ufOrgaoSancionador: sql`values(${Ceaf.ufOrgaoSancionador})`,
+                esferaOrgaoSancionador: sql`values(${Ceaf.esferaOrgaoSancionador})`,
+                fundamentacaoLegal: sql`values(${Ceaf.fundamentacaoLegal})`,
+                dataOrigemInformacao: sql`values(${Ceaf.dataOrigemInformacao})`,
+                origemInformacoes: sql`values(${Ceaf.origemInformacoes})`,
+                observacoes: sql`values(${Ceaf.observacoes})`,
+                exercicioReferencia: sql`values(${Ceaf.exercicioReferencia})`,
+                mesReferencia: sql`values(${Ceaf.mesReferencia})`,
+                diaReferencia: sql`values(${Ceaf.diaReferencia})`,
+                dadosAdicionais: sql`values(${Ceaf.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de CEAF`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: CeafRow[] = [];
     let totalProcessed = 0;
@@ -32,7 +65,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h === 'CADASTRO') return 'cadastro';
                 if (h.includes('CÓDIGO DA SANÇÃO') || h.includes('CODIGO DA SANCAO')) return 'codigoSancao';
                 if (h.includes('TIPO DE PESSOA')) return 'tipoPessoa';
@@ -58,13 +91,16 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
                 if (h.includes('DATA ORIGEM INFORMAÇÃO') || h.includes('DATA ORIGEM INFORMACAO')) return 'dataOrigemInformacao';
                 if (h.includes('ORIGEM INFORMAÇÕES') || h.includes('ORIGEM INFORMACOES') || h.includes('ORIGEM INFORMAÇÃO')) return 'origemInformacoes';
                 if (h.includes('OBSERVAÇÕES') || h.includes('OBSERVACOES')) return 'observacoes';
-                
+
                 return h;
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -101,7 +137,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -132,14 +169,14 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('CEAF')) {
-                                rowsCount = await processCsvStream(readStream);
+                                rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

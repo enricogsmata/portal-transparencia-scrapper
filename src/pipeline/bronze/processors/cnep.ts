@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Cnep } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -15,14 +16,46 @@ type CnepRow = typeof Cnep.$inferInsert;
 async function persistData(data: CnepRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(Cnep).values(data);
+        await bronze_db.insert(Cnep).values(data).onDuplicateKeyUpdate({
+            set: {
+                cadastro: sql`values(${Cnep.cadastro})`,
+                codigoSancao: sql`values(${Cnep.codigoSancao})`,
+                tipoPessoa: sql`values(${Cnep.tipoPessoa})`,
+                cpfCnpjSancionado: sql`values(${Cnep.cpfCnpjSancionado})`,
+                nomeSancionado: sql`values(${Cnep.nomeSancionado})`,
+                nomeInformadoOrgaoSancionador: sql`values(${Cnep.nomeInformadoOrgaoSancionador})`,
+                razaoSocialCadastroReceita: sql`values(${Cnep.razaoSocialCadastroReceita})`,
+                nomeFantasiaCadastroReceita: sql`values(${Cnep.nomeFantasiaCadastroReceita})`,
+                numeroProcesso: sql`values(${Cnep.numeroProcesso})`,
+                categoriaSancao: sql`values(${Cnep.categoriaSancao})`,
+                valorMulta: sql`values(${Cnep.valorMulta})`,
+                dataInicioSancao: sql`values(${Cnep.dataInicioSancao})`,
+                dataFinalSancao: sql`values(${Cnep.dataFinalSancao})`,
+                dataPublicacao: sql`values(${Cnep.dataPublicacao})`,
+                publicacao: sql`values(${Cnep.publicacao})`,
+                detalhamentoMeioPublicacao: sql`values(${Cnep.detalhamentoMeioPublicacao})`,
+                dataTransitoJulgado: sql`values(${Cnep.dataTransitoJulgado})`,
+                abrangenciaSancao: sql`values(${Cnep.abrangenciaSancao})`,
+                orgaoSancionador: sql`values(${Cnep.orgaoSancionador})`,
+                ufOrgaoSancionador: sql`values(${Cnep.ufOrgaoSancionador})`,
+                esferaOrgaoSancionador: sql`values(${Cnep.esferaOrgaoSancionador})`,
+                fundamentacaoLegal: sql`values(${Cnep.fundamentacaoLegal})`,
+                dataOrigemInformacao: sql`values(${Cnep.dataOrigemInformacao})`,
+                origemInformacoes: sql`values(${Cnep.origemInformacoes})`,
+                observacoes: sql`values(${Cnep.observacoes})`,
+                exercicioReferencia: sql`values(${Cnep.exercicioReferencia})`,
+                mesReferencia: sql`values(${Cnep.mesReferencia})`,
+                diaReferencia: sql`values(${Cnep.diaReferencia})`,
+                dadosAdicionais: sql`values(${Cnep.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência de CNEP`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: CnepRow[] = [];
     let totalProcessed = 0;
@@ -32,7 +65,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
             separator: ';',
             mapHeaders: ({ header }) => {
                 const h = header.toUpperCase().trim();
-                
+
                 if (h === 'CADASTRO') return 'cadastro';
                 if (h.includes('CÓDIGO DA SANÇÃO') || h.includes('CODIGO DA SANCAO')) return 'codigoSancao';
                 if (h.includes('TIPO DE PESSOA')) return 'tipoPessoa';
@@ -58,13 +91,16 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
                 if (h.includes('DATA ORIGEM INFORMAÇÃO') || h.includes('DATA ORIGEM INFORMACAO')) return 'dataOrigemInformacao';
                 if (h.includes('ORIGEM INFORMAÇÕES') || h.includes('ORIGEM INFORMACOES') || h.includes('ORIGEM INFORMAÇÃO')) return 'origemInformacoes';
                 if (h.includes('OBSERVAÇÕES') || h.includes('OBSERVACOES')) return 'observacoes';
-                
+
                 return h;
             },
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -101,7 +137,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -132,14 +169,14 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
+
                             if (upperName.includes('CNEP')) {
-                                rowsCount = await processCsvStream(readStream);
+                                rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
-                                readStream.resume(); 
+                                readStream.resume();
                             }
-                            
+
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { ApoiamentosEmendasParlamentares } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,14 +15,48 @@ type ApoiamentosEmendasParlamentaresRow = typeof ApoiamentosEmendasParlamentares
 async function persistData(data: ApoiamentosEmendasParlamentaresRow[]) {
     const log = logger.forMethod('persistData');
     try {
-        await bronze_db.insert(ApoiamentosEmendasParlamentares).values(data);
+        await bronze_db.insert(ApoiamentosEmendasParlamentares).values(data).onDuplicateKeyUpdate({
+            set: {
+                codigoApoiador: sql`values(${ApoiamentosEmendasParlamentares.codigoApoiador})`,
+                apoiador: sql`values(${ApoiamentosEmendasParlamentares.apoiador})`,
+                dataApoio: sql`values(${ApoiamentosEmendasParlamentares.dataApoio})`,
+                dataRetiradaApoio: sql`values(${ApoiamentosEmendasParlamentares.dataRetiradaApoio})`,
+                empenho: sql`values(${ApoiamentosEmendasParlamentares.empenho})`,
+                dataUltimaMovimentacaoEmpenho: sql`values(${ApoiamentosEmendasParlamentares.dataUltimaMovimentacaoEmpenho})`,
+                codigoFavorecido: sql`values(${ApoiamentosEmendasParlamentares.codigoFavorecido})`,
+                favorecido: sql`values(${ApoiamentosEmendasParlamentares.favorecido})`,
+                tipoFavorecido: sql`values(${ApoiamentosEmendasParlamentares.tipoFavorecido})`,
+                ufFavorecido: sql`values(${ApoiamentosEmendasParlamentares.ufFavorecido})`,
+                municipioFavorecido: sql`values(${ApoiamentosEmendasParlamentares.municipioFavorecido})`,
+                codigoEmenda: sql`values(${ApoiamentosEmendasParlamentares.codigoEmenda})`,
+                tipoEmenda: sql`values(${ApoiamentosEmendasParlamentares.tipoEmenda})`,
+                anoEmenda: sql`values(${ApoiamentosEmendasParlamentares.anoEmenda})`,
+                codigoUg: sql`values(${ApoiamentosEmendasParlamentares.codigoUg})`,
+                ug: sql`values(${ApoiamentosEmendasParlamentares.ug})`,
+                codigoUnidadeOrcamentaria: sql`values(${ApoiamentosEmendasParlamentares.codigoUnidadeOrcamentaria})`,
+                unidadeOrcamentaria: sql`values(${ApoiamentosEmendasParlamentares.unidadeOrcamentaria})`,
+                codigoOrgaoSiafi: sql`values(${ApoiamentosEmendasParlamentares.codigoOrgaoSiafi})`,
+                orgao: sql`values(${ApoiamentosEmendasParlamentares.orgao})`,
+                codigoOrgaoSuperiorSiafi: sql`values(${ApoiamentosEmendasParlamentares.codigoOrgaoSuperiorSiafi})`,
+                orgaoSuperior: sql`values(${ApoiamentosEmendasParlamentares.orgaoSuperior})`,
+                codigoAcao: sql`values(${ApoiamentosEmendasParlamentares.codigoAcao})`,
+                acao: sql`values(${ApoiamentosEmendasParlamentares.acao})`,
+                valorEmpenhado: sql`values(${ApoiamentosEmendasParlamentares.valorEmpenhado})`,
+                valorCancelado: sql`values(${ApoiamentosEmendasParlamentares.valorCancelado})`,
+                valorPago: sql`values(${ApoiamentosEmendasParlamentares.valorPago})`,
+                exercicioReferencia: sql`values(${ApoiamentosEmendasParlamentares.exercicioReferencia})`,
+                mesReferencia: sql`values(${ApoiamentosEmendasParlamentares.mesReferencia})`,
+                diaReferencia: sql`values(${ApoiamentosEmendasParlamentares.diaReferencia})`,
+                dadosAdicionais: sql`values(${ApoiamentosEmendasParlamentares.dadosAdicionais})`,
+            },
+        });
     } catch (error: any) {
         log.fatal({ data: error }, `Falha na persistência`);
         throw error;
     }
 }
 
-export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<number> {
+export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
     let batch: ApoiamentosEmendasParlamentaresRow[] = [];
@@ -66,7 +101,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream): Promise<n
         }));
 
         for await (const data of parser) {
-            batch.push(data);
+            batch.push({
+                ...data,
+                ...metadata,
+            });
 
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
@@ -103,7 +141,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
 
     for (const file of files) {
         const zipPath = path.join(dirPath, file);
-        log.info({ data: { zipPath } }, 'Iniciando extração do arquivo ZIP');
+        const metadata = extractMetadataFromFileName(file);
+        log.info({ data: { zipPath, metadata } }, 'Iniciando extração do arquivo ZIP');
 
         const zipRowsCount = await new Promise<number>((resolve, reject) => {
             let fileTotal = 0;
@@ -132,7 +171,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const rowsCount = await processCsvStream(readStream);
+                            const rowsCount = await processCsvStream(readStream, metadata);
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

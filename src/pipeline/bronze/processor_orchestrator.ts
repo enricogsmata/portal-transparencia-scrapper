@@ -71,7 +71,7 @@ export async function runProcessors() {
 
     // EMENDAS PARLAMENTARES
     await runEmendasParlamentaresIngestion();
-    await runEmendasParlamentaresDocumentosDespesaIngestion(); //
+    await runEmendasParlamentaresDocumentosDespesaIngestion(); 
     await runApoiamentosEmendasParlamentaresIngestion();
 
     // IMÓVEIS FUNCIONAIS
@@ -88,7 +88,7 @@ export async function runProcessors() {
     await runOrcamentoDespesaIngestion();
 
     // RECEITAS PÚBLICAS
-    await ();
+    //await ();
 
     // RENÚNCIAS FISCAIS
     await runRenunciasFiscaisIngestion();
