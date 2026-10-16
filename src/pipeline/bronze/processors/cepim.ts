@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Cepim } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -35,26 +36,58 @@ async function persistData(data: CepimRow[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const CEPIM_HEADER_RULES: HeaderRule[] = [
+    { key: 'cnpjEntidade', keywords: ['ENTIDADE'], require: ['CNPJ', 'CPF'] },
+    { key: 'nomeEntidade', keywords: ['ENTIDADE'], require: ['NOME', 'RAZAO'] },
+    { key: 'numeroConvenio', keywords: ['CONVENIO'], require: ['NUMERO'] },
+    { key: 'orgaoConcedente', keywords: ['ORGAO CONCEDENTE', 'CONCEDENTE'] },
+    { key: 'motivoImpedimento', keywords: ['MOTIVO IMPEDIMENTO', 'IMPEDIMENTO'] },
+];
+
+// Helper genérico para resolução das chaves
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: CepimRow[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-
-                if (h === 'CNPJ ENTIDADE') return 'cnpjEntidade';
-                if (h === 'NOME ENTIDADE') return 'nomeEntidade';
-                if (h.includes('NÚMERO CONVÊNIO') || h.includes('NUMERO CONVENIO')) return 'numeroConvenio';
-                if (h.includes('ÓRGÃO CONCEDENTE') || h.includes('ORGAO CONCEDENTE')) return 'orgaoConcedente';
-                if (h.includes('MOTIVO DO IMPEDIMENTO') || h.includes('MOTIVO IMPEDIMENTO')) return 'motivoImpedimento';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, CEPIM_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -74,10 +107,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do CSV concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do CEPIM concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream do CSV');
+        log.error({ data: error }, 'Erro ao processar stream do CEPIM');
         throw error;
     }
 }

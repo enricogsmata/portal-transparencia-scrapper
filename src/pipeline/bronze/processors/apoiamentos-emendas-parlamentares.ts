@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { ApoiamentosEmendasParlamentares } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -55,6 +56,54 @@ async function persistData(data: ApoiamentosEmendasParlamentaresRow[]) {
         throw error;
     }
 }
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const APOIAMENTOS_EMENDAS_HEADER_RULES: HeaderRule[] = [
+    // Apoiador e Apoio
+    { key: 'codigoApoiador', keywords: ['APOIADOR'], require: ['CODIGO'] },
+    { key: 'apoiador', matchExact: ['APOIADOR', 'NOME APOIADOR'] },
+    { key: 'dataApoio', keywords: ['DATA DO APOIO', 'DATA APOIO'] },
+    { key: 'dataRetiradaApoio', keywords: ['DATA RETIRADA DO APOIO', 'RETIRADA APOIO'] },
+
+    // Empenho e Movimentação
+    { key: 'dataUltimaMovimentacaoEmpenho', keywords: ['MOVIMENTACAO'] },
+    { key: 'empenho', matchExact: ['EMPENHO', 'NUMERO EMPENHO'] },
+
+    // Favorecido
+    { key: 'codigoFavorecido', keywords: ['FAVORECIDO'], require: ['CODIGO'] },
+    { key: 'tipoFavorecido', keywords: ['FAVORECIDO'], require: ['TIPO'] },
+    { key: 'ufFavorecido', keywords: ['FAVORECIDO'], require: ['UF'] },
+    { key: 'municipioFavorecido', keywords: ['FAVORECIDO'], require: ['MUNICIPIO'] },
+    { key: 'favorecido', matchExact: ['FAVORECIDO', 'NOME FAVORECIDO'] },
+
+    // Emenda
+    { key: 'codigoEmenda', keywords: ['EMENDA'], require: ['CODIGO'] },
+    { key: 'tipoEmenda', keywords: ['EMENDA'], require: ['TIPO'] },
+    { key: 'anoEmenda', keywords: ['EMENDA'], require: ['ANO'] },
+
+    // Unidades e Órgãos (Órgão Superior antes de Órgão genérico)
+    { key: 'codigoUg', keywords: ['UG'], require: ['CODIGO'] },
+    { key: 'ug', matchExact: ['UG'] },
+    { key: 'codigoUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['CODIGO'] },
+    { key: 'unidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'] },
+
+    { key: 'codigoOrgaoSuperiorSiafi', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'orgaoSuperior', keywords: ['ORGAO SUPERIOR'] },
+    { key: 'codigoOrgaoSiafi', keywords: ['ORGAO SIAFI', 'ORGAO'], require: ['CODIGO'] },
+    { key: 'orgao', matchExact: ['ORGAO'] },
+
+    // Estrutura Orçamentária e Valores
+    { key: 'codigoAcao', keywords: ['ACAO'], require: ['CODIGO'] },
+    { key: 'acao', matchExact: ['ACAO'] },
+    { key: 'valorEmpenhado', keywords: ['VALOR EMPENHADO'] },
+    { key: 'valorCancelado', keywords: ['VALOR CANCELADO'] },
+    { key: 'valorPago', keywords: ['VALOR PAGO'] },
+];
 
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
@@ -63,42 +112,35 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                
-                if (h.includes('CÓDIGO APOIADOR') || h.includes('CODIGO APOIADOR')) return 'codigoApoiador';
-                if (h === 'APOIADOR') return 'apoiador';
-                if (h === 'DATA DO APOIO') return 'dataApoio';
-                if (h.includes('DATA RETIRADA DO APOIO')) return 'dataRetiradaApoio';
-                if (h === 'EMPENHO') return 'empenho';
-                if (h.includes('DATA ÚLTIMA MOVIMENTAÇÃO') || h.includes('DATA ULTIMA MOVIMENTACAO')) return 'dataUltimaMovimentacaoEmpenho';
-                if (h.includes('CÓDIGO FAVORECIDO') || h.includes('CODIGO FAVORECIDO')) return 'codigoFavorecido';
-                if (h === 'FAVORECIDO') return 'favorecido';
-                if (h === 'TIPO FAVORECIDO') return 'tipoFavorecido';
-                if (h === 'UF FAVORECIDO') return 'ufFavorecido';
-                if (h.includes('MUNICÍPIO FAVORECIDO') || h.includes('MUNICIPIO FAVORECIDO')) return 'municipioFavorecido';
-                if (h.includes('CÓDIGO DA EMENDA') || h.includes('CODIGO DA EMENDA')) return 'codigoEmenda';
-                if (h.includes('TIPO DE EMENDA')) return 'tipoEmenda';
-                if (h === 'ANO DA EMENDA') return 'anoEmenda';
-                if (h === 'CÓDIGO UG' || h === 'CODIGO UG') return 'codigoUg';
-                if (h === 'UG') return 'ug';
-                if (h === 'CÓDIGO UNIDADE ORÇAMENTÁRIA' || h === 'CODIGO UNIDADE ORCAMENTARIA') return 'codigoUnidadeOrcamentaria';
-                if (h === 'UNIDADE ORÇAMENTÁRIA' || h === 'UNIDADE ORCAMENTARIA') return 'unidadeOrcamentaria';
-                if (h === 'CÓDIGO ÓRGÃO SIAFI' || h === 'CODIGO ORGAO SIAFI') return 'codigoOrgaoSiafi';
-                if (h === 'ÓRGÃO' || h === 'ORGAO') return 'orgao';
-                if (h === 'CÓDIGO ÓRGÃO SUPERIOR SIAFI' || h === 'CODIGO ORGAO SUPERIOR SIAFI') return 'codigoOrgaoSuperiorSiafi';
-                if (h === 'ÓRGÃO SUPERIOR' || h === 'ORGAO SUPERIOR') return 'orgaoSuperior';
-                if (h === 'CÓDIGO AÇÃO' || h === 'CODIGO ACAO') return 'codigoAcao';
-                if (h === 'AÇÃO' || h === 'ACAO') return 'acao';
-                if (h === 'VALOR EMPENHADO') return 'valorEmpenhado';
-                if (h === 'VALOR CANCELADO') return 'valorCancelado';
-                if (h === 'VALOR PAGO') return 'valorPago';
-                
-                return header.trim();
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
+
+                    const cleanHeader = normalize(header);
+
+                    for (const rule of APOIAMENTOS_EMENDAS_HEADER_RULES) {
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -11,7 +12,7 @@ import {
     Licitacao,
     LicitacaoParticipantes
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -91,7 +92,8 @@ async function persistLicitacao(data: (typeof Licitacao.$inferInsert)[]) {
                 nomeOrgaoSuperior: sql`values(${Licitacao.nomeOrgaoSuperior})`,
                 codigoOrgao: sql`values(${Licitacao.codigoOrgao})`,
                 nomeOrgao: sql`values(${Licitacao.nomeOrgao})`,
-                ufMunicipio: sql`values(${Licitacao.ufMunicipio})`,
+                uf: sql`values(${Licitacao.uf})`,
+                municipio: sql`values(${Licitacao.municipio})`,
                 dataResultadoCompra: sql`values(${Licitacao.dataResultadoCompra})`,
                 dataAbertura: sql`values(${Licitacao.dataAbertura})`,
                 valorLicitacao: sql`values(${Licitacao.valorLicitacao})`,
@@ -137,29 +139,111 @@ async function persistParticipantes(data: (typeof LicitacaoParticipantes.$inferI
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+
+// Regras Comuns do Módulo de Licitações
+const COMMON_LICITACAO_RULES: HeaderRule[] = [
+    { key: 'numeroLicitacao', keywords: ['NUMERO LICITACAO', 'NUMERO DA LICITACAO'] },
+    { key: 'codigoUg', keywords: ['UG'], require: ['CODIGO'] },
+    { key: 'nomeUg', keywords: ['UG'], require: ['NOME'] },
+    { key: 'codigoModalidadeCompra', keywords: ['MODALIDADE COMPRA', 'MODALIDADE DE COMPRA'], require: ['CODIGO'] },
+    { key: 'modalidadeCompra', keywords: ['MODALIDADE COMPRA', 'MODALIDADE DE COMPRA'] },
+    { key: 'numeroProcesso', keywords: ['PROCESSO', 'NUMERO PROCESSO'] },
+
+    // Órgãos (Superior antes do Genérico)
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+    { key: 'codigoOrgao', keywords: ['ORGAO'], require: ['CODIGO'] },
+    { key: 'nomeOrgao', keywords: ['ORGAO'], require: ['NOME'] },
+];
+
+const EMPENHOS_RELACIONADOS_RULES: HeaderRule[] = [
+    { key: 'codigoEmpenho', keywords: ['EMPENHO'], require: ['CODIGO'] },
+    { key: 'dataEmissaoEmpenho', keywords: ['EMISSÃO EMPENHO', 'EMISSAO EMPENHO', 'DATA EMPENHO'] },
+    { key: 'observacaoEmpenho', keywords: ['OBSERVACAO EMPENHO', 'OBSERVACAO'] },
+    { key: 'valorEmpenho', keywords: ['VALOR EMPENHO'] },
+];
+
+const ITEM_LICITACAO_RULES: HeaderRule[] = [
+    { key: 'codigoItemCompra', keywords: ['ITEM COMPRA', 'ITEM DE COMPRA'], require: ['CODIGO'] },
+    { key: 'descricaoItemCompra', keywords: ['DESCRICAO'], require: ['DESCRICAO'] },
+    { key: 'flagVencedor', keywords: ['CODIGO VENCEDOR'], require: ['CODIGO'] },
+    { key: 'cnpjParticipante', keywords: ['CNPJ PARTICIPANTE', 'PARTICIPANTE', 'VENCEDOR'], require: ['CNPJ', 'CODIGO'] },
+    { key: 'nomeParticipante', keywords: ['NOME PARTICIPANTE', 'PARTICIPANTE', 'VENCEDOR'], require: ['NOME'] },
+    { key: 'quantidadeItem', keywords: ['QUANTIDADE ITEM', 'QUANTIDADE'] },
+    { key: 'valorItem', keywords: ['VALOR ITEM', 'VALOR DO ITEM'] },
+];
+
+const LICITACAO_MAIN_RULES: HeaderRule[] = [
+    { key: 'objeto', matchExact: ['OBJETO', 'OBJETO LICITACAO'] },
+    { key: 'situacaoLicitacao', keywords: ['SITUACAO LICITACAO', 'SITUACAO DA LICITACAO'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'municipio', keywords: ['MUNICIPIO'] },
+    { key: 'dataResultadoCompra', keywords: ['RESULTADO COMPRA', 'RESULTADO DA COMPRA'] },
+    { key: 'dataAbertura', keywords: ['DATA ABERTURA', 'ABERTURA'] },
+    { key: 'valorLicitacao', keywords: ['VALOR LICITACAO', 'VALOR DA LICITACAO'] },
+];
+
+const PARTICIPANTES_RULES: HeaderRule[] = [
+    { key: 'codigoItemCompra', keywords: ['ITEM COMPRA', 'ITEM DE COMPRA'], require: ['CODIGO'] },
+    { key: 'descricaoItemCompra', keywords: ['ITEM COMPRA', 'ITEM DE COMPRA'], require: ['DESCRICAO'] },
+    { key: 'cnpjParticipante', keywords: ['CNPJ PARTICIPANTE', 'CNPJ DO PARTICIPANTE', 'CODIGO PARTICIPANTE'] },
+    { key: 'nomeParticipante', keywords: ['NOME PARTICIPANTE', 'NOME DO PARTICIPANTE'] },
+    { key: 'flagVencedor', keywords: ['FLAG VENCEDOR', 'VENCEDOR'] },
+];
+
+// Helper genérico para buscar nas regras específicas + comuns
+function resolveLicitacaoHeaderKey(header: string, specificRules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    // 1. Tenta casar primeiro nas regras específicas da sub-tabela
+    for (const rule of specificRules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    // 2. Se não casou, tenta as regras comuns de Licitações
+    for (const rule of COMMON_LICITACAO_RULES) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processEmpenhosRelacionadosStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processEmpenhosRelacionadosStream');
     let batch: (typeof LicitacaoEmpenhosRelacionados.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO LICITAÇÃO') || h.includes('NUMERO LICITACAO')) return 'numeroLicitacao';
-                if (h.includes('CÓDIGO UG') || h.includes('CODIGO UG')) return 'codigoUg';
-                if (h.includes('NOME UG')) return 'nomeUg';
-                if (h.includes('CÓDIGO MODALIDADE DE COMPRA') || h.includes('CODIGO MODALIDADE DE COMPRA') || h.includes('CÓDIGO MODALIDADE COMPRA')) return 'codigoModalidadeCompra';
-                if (h.includes('MODALIDADE COMPRA') || h.includes('MODALIDADE DE COMPRA')) return 'modalidadeCompra';
-                if (h.includes('NÚMERO PROCESSO') || h.includes('NUMERO PROCESSO')) return 'numeroProcesso';
-                if (h.includes('CÓDIGO EMPENHO') || h.includes('CODIGO EMPENHO')) return 'codigoEmpenho';
-                if (h.includes('DATA EMISSÃO EMPENHO') || h.includes('DATA EMISSAO EMPENHO')) return 'dataEmissaoEmpenho';
-                if (h.includes('OBSERVAÇÃO EMPENHO') || h.includes('OBSERVACAO EMPENHO')) return 'observacaoEmpenho';
-                if (h.includes('VALOR EMPENHO')) return 'valorEmpenho';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveLicitacaoHeaderKey(header, EMPENHOS_RELACIONADOS_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -176,9 +260,11 @@ async function processEmpenhosRelacionadosStream(stream: NodeJS.ReadableStream, 
             await persistEmpenhosRelacionados(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Empenhos Relacionados concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Empenhos Relacionados');
         throw error;
     }
 }
@@ -189,29 +275,12 @@ async function processItemLicitacaoStream(stream: NodeJS.ReadableStream, metadat
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO LICITAÇÃO') || h.includes('NUMERO LICITACAO')) return 'numeroLicitacao';
-                if (h.includes('CÓDIGO UG') || h.includes('CODIGO UG')) return 'codigoUg';
-                if (h.includes('NOME UG')) return 'nomeUg';
-                if (h.includes('CÓDIGO MODALIDADE DE COMPRA') || h.includes('CODIGO MODALIDADE DE COMPRA') || h.includes('CÓDIGO MODALIDADE COMPRA')) return 'codigoModalidadeCompra';
-                if (h.includes('MODALIDADE COMPRA') || h.includes('MODALIDADE DE COMPRA')) return 'modalidadeCompra';
-                if (h.includes('NÚMERO PROCESSO') || h.includes('NUMERO PROCESSO')) return 'numeroProcesso';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h.includes('CÓDIGO ITEM COMPRA') || h.includes('CODIGO ITEM COMPRA')) return 'codigoItemCompra';
-                if (h.includes('DESCRIÇÃO ITEM COMPRA') || h.includes('DESCRICAO ITEM COMPRA')) return 'descricaoItemCompra';
-                if (h.includes('CNPJ PARTICIPANTE') || h.includes('CÓDIGO VENCEDOR') || h.includes('CODIGO VENCEDOR')) return 'cnpjParticipante';
-                if (h.includes('NOME PARTICIPANTE') || h.includes('NOME VENCEDOR')) return 'nomeParticipante';
-                if (h.includes('FLAG VENCEDOR')) return 'flagVencedor';
-                if (h.includes('QUANTIDADE ITEM')) return 'quantidadeItem';
-                if (h.includes('VALOR ITEM')) return 'valorItem';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveLicitacaoHeaderKey(header, ITEM_LICITACAO_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -228,9 +297,11 @@ async function processItemLicitacaoStream(stream: NodeJS.ReadableStream, metadat
             await persistItemLicitacao(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Itens da Licitação concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Itens da Licitação');
         throw error;
     }
 }
@@ -241,29 +312,12 @@ async function processLicitacaoStream(stream: NodeJS.ReadableStream, metadata: R
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO LICITAÇÃO') || h.includes('NUMERO LICITACAO')) return 'numeroLicitacao';
-                if (h.includes('CÓDIGO UG') || h.includes('CODIGO UG')) return 'codigoUg';
-                if (h.includes('NOME UG')) return 'nomeUg';
-                if (h.includes('CÓDIGO MODALIDADE DE COMPRA') || h.includes('CODIGO MODALIDADE DE COMPRA') || h.includes('CÓDIGO MODALIDADE COMPRA')) return 'codigoModalidadeCompra';
-                if (h.includes('MODALIDADE COMPRA') || h.includes('MODALIDADE DE COMPRA')) return 'modalidadeCompra';
-                if (h.includes('NÚMERO PROCESSO') || h.includes('NUMERO PROCESSO')) return 'numeroProcesso';
-                if (h === 'OBJETO') return 'objeto';
-                if (h.includes('SITUAÇÃO LICITAÇÃO') || h.includes('SITUACAO LICITACAO')) return 'situacaoLicitacao';
-                if (h.includes('CÓDIGO DO ÓRGÃO SUPERIOR') || h.includes('CODIGO DO ORGAO SUPERIOR') || h.includes('CÓDIGO ÓRGÃO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h.includes('UF/MUNICÍPIO') || h.includes('UF/MUNICIPIO')) return 'ufMunicipio';
-                if (h.includes('DATA RESULTADO COMPRA')) return 'dataResultadoCompra';
-                if (h.includes('DATA ABERTURA')) return 'dataAbertura';
-                if (h.includes('VALOR LICITAÇÃO') || h.includes('VALOR LICITACAO')) return 'valorLicitacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveLicitacaoHeaderKey(header, LICITACAO_MAIN_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -280,9 +334,11 @@ async function processLicitacaoStream(stream: NodeJS.ReadableStream, metadata: R
             await persistLicitacao(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Licitações concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Licitações');
         throw error;
     }
 }
@@ -293,26 +349,12 @@ async function processParticipantesStream(stream: NodeJS.ReadableStream, metadat
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO LICITAÇÃO') || h.includes('NUMERO LICITACAO')) return 'numeroLicitacao';
-                if (h.includes('CÓDIGO UG') || h.includes('CODIGO UG')) return 'codigoUg';
-                if (h.includes('NOME UG')) return 'nomeUg';
-                if (h.includes('CÓDIGO MODALIDADE DE COMPRA') || h.includes('CODIGO MODALIDADE DE COMPRA') || h.includes('CÓDIGO MODALIDADE COMPRA')) return 'codigoModalidadeCompra';
-                if (h.includes('MODALIDADE COMPRA') || h.includes('MODALIDADE DE COMPRA')) return 'modalidadeCompra';
-                if (h.includes('NÚMERO PROCESSO') || h.includes('NUMERO PROCESSO')) return 'numeroProcesso';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h.includes('CÓDIGO ITEM COMPRA') || h.includes('CODIGO ITEM COMPRA')) return 'codigoItemCompra';
-                if (h.includes('DESCRIÇÃO ITEM COMPRA') || h.includes('DESCRICAO ITEM COMPRA')) return 'descricaoItemCompra';
-                if (h.includes('CNPJ PARTICIPANTE')) return 'cnpjParticipante';
-                if (h.includes('NOME PARTICIPANTE')) return 'nomeParticipante';
-                if (h.includes('FLAG VENCEDOR')) return 'flagVencedor';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveLicitacaoHeaderKey(header, PARTICIPANTES_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -329,9 +371,11 @@ async function processParticipantesStream(stream: NodeJS.ReadableStream, metadat
             await persistParticipantes(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Participantes concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Participantes');
         throw error;
     }
 }

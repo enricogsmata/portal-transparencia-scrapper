@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { EmendasParlamentaresDocumentosDespesa } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -77,6 +78,80 @@ async function persistData(data: EmendasParlamentaresDocumentosDespesaRow[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const DOCUMENTOS_DESPESA_EMENDAS_HEADER_RULES: HeaderRule[] = [
+    // Emenda e Autor
+    { key: 'codigoAutorEmenda', keywords: ['AUTOR DA EMENDA'], require: ['CODIGO'] },
+    { key: 'codigoEmenda', keywords: ['EMENDA'], require: ['CODIGO'] },
+    { key: 'anoEmenda', keywords: ['EMENDA'], require: ['ANO'] },
+    { key: 'nomeAutorEmenda', keywords: ['AUTOR'], require: ['NOME'] },
+    { key: 'numeroEmenda', keywords: ['EMENDA'], require: ['NUMERO'] },
+    { key: 'tipoEmenda', keywords: ['EMENDA'], require: ['TIPO'] },
+
+    // Documento e Valores
+    { key: 'dataDocumento', keywords: ['DATA DOCUMENTO'] },
+    { key: 'codigoDocumento', keywords: ['DOCUMENTO'], require: ['CODIGO'] },
+    { key: 'faseDespesa', keywords: ['FASE DA DESPESA', 'FASE DESPESA'] },
+    { key: 'valorEmpenhado', keywords: ['VALOR EMPENHADO'] },
+    { key: 'valorPago', keywords: ['VALOR PAGO'] },
+
+    // Aplicação do Recurso
+    { key: 'localidadeAplicacaoRecurso', keywords: ['LOCALIDADE DE APLICACAO', 'LOCALIDADE APLICACAO'] },
+    { key: 'ufAplicacaoRecurso', keywords: ['UF DE APLICACAO', 'UF APLICACAO'] },
+    { key: 'codigoIbgeMunicipioAplicacaoRecurso', keywords: ['MUNICIPIO'], require: ['IBGE'] },
+    { key: 'municipioAplicacaoRecurso', keywords: ['MUNICIPIO DE APLICACAO', 'MUNICIPIO APLICACAO'] },
+
+    // Favorecido
+    { key: 'codigoFavorecido', keywords: ['FAVORECIDO'], require: ['CODIGO'] },
+    { key: 'tipoFavorecido', keywords: ['FAVORECIDO'], require: ['TIPO'] },
+    { key: 'ufFavorecido', keywords: ['FAVORECIDO'], require: ['UF'] },
+    { key: 'municipioFavorecido', keywords: ['FAVORECIDO'], require: ['MUNICIPIO'] },
+    { key: 'favorecido', matchExact: ['FAVORECIDO', 'NOME FAVORECIDO'] },
+
+    // Unidades e Órgãos (A ordem importa: Órgão Superior antes de Órgão genérico)
+    { key: 'codigoOrgaoSuperiorSiafi', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'orgaoSuperior', keywords: ['ORGAO SUPERIOR'] },
+    { key: 'codigoOrgaoSiafi', keywords: ['ORGAO SIAFI', 'ORGAO'], require: ['CODIGO'] },
+    { key: 'orgao', matchExact: ['ORGAO'] },
+
+    { key: 'codigoUg', keywords: ['UG'], require: ['CODIGO'] },
+    { key: 'ug', matchExact: ['UG'] },
+    { key: 'codigoUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['CODIGO'] },
+    { key: 'unidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'] },
+
+    // Estrutura Orçamentária e Classificação de Despesa
+    { key: 'codigoGrupoDespesa', keywords: ['GRUPO DESPESA', 'GRUPO DE DESPESA'], require: ['CODIGO'] },
+    { key: 'grupoDespesa', keywords: ['GRUPO DESPESA', 'GRUPO DE DESPESA'] },
+    { key: 'codigoElementoDespesa', keywords: ['ELEMENTO DESPESA', 'ELEMENTO DE DESPESA'], require: ['CODIGO'] },
+    { key: 'elementoDespesa', keywords: ['ELEMENTO DESPESA', 'ELEMENTO DE DESPESA'] },
+    { key: 'codigoModalidadeAplicacaoDespesa', keywords: ['MODALIDADE APLICACAO'], require: ['CODIGO'] },
+    { key: 'modalidadeAplicacaoDespesa', keywords: ['MODALIDADE APLICACAO'] },
+    { key: 'codigoPlanoOrcamentario', keywords: ['PLANO ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'planoOrcamentario', keywords: ['PLANO ORCAMENTARIO'] },
+
+    // SUBFUNÇÃO antes de FUNÇÃO para evitar falsos positivos
+    { key: 'codigoSubfuncao', keywords: ['SUBFUNCAO'], require: ['CODIGO'] },
+    { key: 'subfuncao', keywords: ['SUBFUNCAO'] },
+    { key: 'codigoFuncao', keywords: ['FUNCAO'], require: ['CODIGO'] },
+    { key: 'funcao', matchExact: ['FUNCAO'] },
+
+    { key: 'codigoPrograma', keywords: ['PROGRAMA'], require: ['CODIGO'] },
+    { key: 'programa', matchExact: ['PROGRAMA'] },
+    { key: 'codigoAcao', keywords: ['ACAO'], require: ['CODIGO'] },
+    { key: 'acao', matchExact: ['ACAO'] },
+
+    { key: 'linguagemCidada', keywords: ['LINGUAGEM CIDADA'] },
+    { key: 'codigoSubtituloLocalizador', keywords: ['SUBTITULO LOCALIZADOR', 'SUBTITULO (LOCALIZADOR)'], require: ['CODIGO'] },
+    { key: 'subtituloLocalizador', keywords: ['SUBTITULO LOCALIZADOR', 'SUBTITULO (LOCALIZADOR)'] },
+    { key: 'possuiConvenio', keywords: ['POSSUI CONVENIO'] },
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -84,63 +159,35 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                
-                if (h.includes('CÓDIGO DA EMENDA') || h.includes('CODIGO DA EMENDA')) return 'codigoEmenda';
-                if (h === 'ANO DA EMENDA') return 'anoEmenda';
-                if (h.includes('CÓDIGO DO AUTOR') || h.includes('CODIGO DO AUTOR')) return 'codigoAutorEmenda';
-                if (h.includes('NOME DO AUTOR')) return 'nomeAutorEmenda';
-                if (h.includes('NÚMERO DA EMENDA') || h.includes('NUMERO DA EMENDA')) return 'numeroEmenda';
-                if (h === 'CÓDIGO FUNÇÃO' || h === 'CODIGO FUNCAO') return 'codigoFuncao';
-                if (h === 'VALOR EMPENHADO') return 'valorEmpenhado';
-                if (h === 'VALOR PAGO') return 'valorPago';
-                if (h === 'TIPO DE EMENDA') return 'tipoEmenda';
-                if (h === 'DATA DOCUMENTO') return 'dataDocumento';
-                if (h === 'CÓDIGO DOCUMENTO' || h === 'CODIGO DOCUMENTO') return 'codigoDocumento';
-                if (h.includes('LOCALIDADE DE APLICAÇÃO') || h.includes('LOCALIDADE DE APLICACAO')) return 'localidadeAplicacaoRecurso';
-                if (h.includes('UF DE APLICAÇÃO') || h.includes('UF DE APLICACAO')) return 'ufAplicacaoRecurso';
-                if (h.includes('MUNICÍPIO DE APLICAÇÃO') || h.includes('MUNICIPIO DE APLICACAO')) return 'municipioAplicacaoRecurso';
-                if (h.includes('CÓDIGO IBGE DO MUNICÍPIO') || h.includes('CODIGO IBGE DO MUNICIPIO')) return 'codigoIbgeMunicipioAplicacaoRecurso';
-                if (h === 'FASE DA DESPESA') return 'faseDespesa';
-                if (h === 'CÓDIGO FAVORECIDO' || h === 'CODIGO FAVORECIDO') return 'codigoFavorecido';
-                if (h === 'FAVORECIDO') return 'favorecido';
-                if (h === 'TIPO FAVORECIDO') return 'tipoFavorecido';
-                if (h === 'UF FAVORECIDO') return 'ufFavorecido';
-                if (h === 'MUNICÍPIO FAVORECIDO' || h === 'MUNICIPIO FAVORECIDO') return 'municipioFavorecido';
-                if (h === 'CÓDIGO UG' || h === 'CODIGO UG') return 'codigoUg';
-                if (h === 'UG') return 'ug';
-                if (h === 'CÓDIGO UNIDADE ORÇAMENTÁRIA' || h === 'CODIGO UNIDADE ORCAMENTARIA') return 'codigoUnidadeOrcamentaria';
-                if (h === 'UNIDADE ORÇAMENTÁRIA' || h === 'UNIDADE ORCAMENTARIA') return 'unidadeOrcamentaria';
-                if (h === 'CÓDIGO ÓRGÃO SIAFI' || h === 'CODIGO ORGAO SIAFI') return 'codigoOrgaoSiafi';
-                if (h === 'ÓRGÃO' || h === 'ORGAO') return 'orgao';
-                if (h === 'CÓDIGO ÓRGÃO SUPERIOR SIAFI' || h === 'CODIGO ORGAO SUPERIOR SIAFI') return 'codigoOrgaoSuperiorSiafi';
-                if (h === 'ÓRGÃO SUPERIOR' || h === 'ORGAO SUPERIOR') return 'orgaoSuperior';
-                if (h === 'CÓDIGO GRUPO DESPESA' || h === 'CODIGO GRUPO DESPESA') return 'codigoGrupoDespesa';
-                if (h === 'GRUPO DESPESA') return 'grupoDespesa';
-                if (h === 'CÓDIGO ELEMENTO DESPESA' || h === 'CODIGO ELEMENTO DESPESA') return 'codigoElementoDespesa';
-                if (h === 'ELEMENTO DESPESA') return 'elementoDespesa';
-                if (h === 'CÓDIGO MODALIDADE APLICAÇÃO DESPESA' || h === 'CODIGO MODALIDADE APLICACAO DESPESA') return 'codigoModalidadeAplicacaoDespesa';
-                if (h === 'MODALIDADE APLICAÇÃO DESPESA' || h === 'MODALIDADE APLICACAO DESPESA') return 'modalidadeAplicacaoDespesa';
-                if (h === 'CÓDIGO PLANO ORÇAMENTÁRIO' || h === 'CODIGO PLANO ORCAMENTARIO') return 'codigoPlanoOrcamentario';
-                if (h === 'PLANO ORÇAMENTÁRIO' || h === 'PLANO ORCAMENTARIO') return 'planoOrcamentario';
-                if (h === 'FUNÇÃO' || h === 'FUNCAO') return 'funcao';
-                if (h === 'CÓDIGO SUBFUNÇÃO' || h === 'CODIGO SUBFUNCAO') return 'codigoSubfuncao';
-                if (h === 'SUBFUNÇÃO' || h === 'SUBFUNCAO') return 'subfuncao';
-                if (h === 'CÓDIGO PROGRAMA' || h === 'CODIGO PROGRAMA') return 'codigoPrograma';
-                if (h === 'PROGRAMA') return 'programa';
-                if (h === 'CÓDIGO AÇÃO' || h === 'CODIGO ACAO') return 'codigoAcao';
-                if (h === 'AÇÃO' || h === 'ACAO') return 'acao';
-                if (h === 'LINGUAGEM CIDADÃ' || h === 'LINGUAGEM CIDADA') return 'linguagemCidada';
-                if (h === 'CÓDIGO SUBTÍTULO (LOCALIZADOR)' || h === 'CODIGO SUBTITULO (LOCALIZADOR)') return 'codigoSubtituloLocalizador';
-                if (h === 'SUBTÍTULO (LOCALIZADOR)' || h === 'SUBTITULO (LOCALIZADOR)') return 'subtituloLocalizador';
-                if (h === 'POSSUI CONVÊNIO?' || h === 'POSSUI CONVENIO?') return 'possuiConvenio';
-                
-                return header.trim();
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
+
+                    const cleanHeader = normalize(header);
+
+                    for (const rule of DOCUMENTOS_DESPESA_EMENDAS_HEADER_RULES) {
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

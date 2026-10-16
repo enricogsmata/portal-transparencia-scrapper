@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -44,6 +46,41 @@ async function persistData(data: CartaoPagamentoCpccRow[]) {
     }
 }
 
+// Mapeamento de regras para o CPCC (Cartão de Defesa Civil)
+const CPCC_HEADER_RULES = [
+    // 1. Órgãos mais específicos primeiro (Órgão Superior, Subordinado explícito e Unidade Gestora)
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+
+    { key: 'codigoOrgaoSubordinado', keywords: ['ORGAO SUBORDINADO'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSubordinado', keywords: ['ORGAO SUBORDINADO'], require: ['NOME'] },
+
+    { key: 'codigoUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['CODIGO'] },
+    { key: 'nomeUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['NOME'] },
+
+    // 2. Órgão genérico ("CÓDIGO ÓRGÃO" / "NOME ÓRGÃO")
+    { key: 'codigoOrgaoSubordinado', keywords: ['CODIGO ORGAO', 'CODIGO DO ORGAO'] },
+    { key: 'nomeOrgaoSubordinado', keywords: ['NOME ORGAO', 'NOME DO ORGAO'] },
+
+    // 3. Extrato e Tipo de Aquisição
+    { key: 'anoExtrato', keywords: ['ANO EXTRATO'] },
+    { key: 'mesExtrato', keywords: ['MES EXTRATO'] },
+    { key: 'tipoAquisicao', keywords: ['TIPO AQUISICAO', 'TIPO DE AQUISICAO'] },
+
+    // 4. Portador (Termos explícitos para o Portador)
+    { key: 'cpfPortador', keywords: ['CPF PORTADOR', 'CPF DO PORTADOR', 'CNPJ OU CPF PORTADOR'] },
+    { key: 'nomePortador', keywords: ['NOME PORTADOR', 'NOME DO PORTADOR'] },
+
+    // 5. Transação (A ordem importa: DATA e VALOR antes de TRANSAÇÃO isolado)
+    { key: 'dataTransacao', keywords: ['DATA TRANSACAO', 'DATA DA TRANSACAO'] },
+    { key: 'valorTransacao', keywords: ['VALOR TRANSACAO', 'VALOR DA TRANSACAO'] },
+    { key: 'transacao', matchExact: ['TRANSACAO', 'TIPO DE TRANSACAO', 'TIPO TRANSACAO'] },
+
+    // 6. Favorecido
+    { key: 'nomeFavorecido', keywords: ['NOME FAVORECIDO', 'NOME DO FAVORECIDO'] },
+    { key: 'documentoFavorecido', keywords: ['CNPJ OU CPF FAVORECIDO', 'CPF DO FAVORECIDO', 'CPF FAVORECIDO', 'CNPJ FAVORECIDO', 'CNPJ'] }
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -51,42 +88,37 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
 
-                if (h.includes('ÓRGÃO SUPERIOR') || h.includes('ORGAO SUPERIOR')) {
-                    if (h.includes('CÓDIGO') || h.includes('CODIGO')) return 'codigoOrgaoSuperior';
-                    if (h.includes('NOME')) return 'nomeOrgaoSuperior';
-                }
+                    const cleanHeader = normalize(header);
 
-                if (h.includes('ÓRGÃO SUBORDINADO') || h.includes('ORGAO SUBORDINADO')) {
-                    if (h.includes('CÓDIGO') || h.includes('CODIGO')) return 'codigoOrgaoSubordinado';
-                    if (h.includes('NOME')) return 'nomeOrgaoSubordinado';
-                }
+                    for (const rule of CPCC_HEADER_RULES) {
+                        // Correspondência exata
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
 
-                if (h.includes('UNIDADE GESTORA')) {
-                    if (h.includes('CÓDIGO') || h.includes('CODIGO')) return 'codigoUnidadeGestora';
-                    if (h.includes('NOME')) return 'nomeUnidadeGestora';
-                }
+                        // Correspondência por keywords
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
 
-                if (h.includes('ANO EXTRATO')) return 'anoExtrato';
-                if (h.includes('MÊS EXTRATO') || h.includes('MES EXTRATO')) return 'mesExtrato';
+                        if (hasKeyword) {
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
 
-                if (h.includes('CPF PORTADOR')) return 'cpfPortador';
-                if (h.includes('NOME PORTADOR')) return 'nomePortador';
-
-                if (h.includes('DATA TRANSAÇÃO') || h.includes('DATA TRANSACAO')) return 'dataTransacao';
-                if (h.includes('VALOR TRANSAÇÃO') || h.includes('VALOR TRANSACAO')) return 'valorTransacao';
-                if (h === 'TRANSAÇÃO' || h === 'TRANSACAO') return 'transacao';
-
-                if (h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
-                if (h.includes('CNPJ') || h.includes('CPF DO FAVORECIDO') || h.includes('CPF FAVORECIDO')) return 'documentoFavorecido';
-
-                return header.trim();
-            },
-        }));
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

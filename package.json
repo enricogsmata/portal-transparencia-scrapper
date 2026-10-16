@@ -28,6 +28,7 @@
     "date-fns": "^4.4.0",
     "dotenv": "^18.0.7",
     "drizzle-orm": "^0.45.4",
+    "iconv-lite": "^0.7.3",
     "mysql": "^2.18.1",
     "mysql2": "^3.24.5",
     "papaparse": "^5.7.0",

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
@@ -11,7 +12,7 @@ import {
     ViagensTrecho,
     ViagensViagem
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -34,67 +35,99 @@ async function persistData(schema: any, data: any[], logPrefix: string) {
     }
 }
 
-function mapHeaders(header: string): string {
-    const h = header.toUpperCase().trim();
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
 
-    if (h.includes('IDENTIFICADOR DO PROCESSO DE VIAGEM')) return 'identificadorProcessoViagem';
+const VIAGENS_HEADER_RULES: HeaderRule[] = [
+    { key: 'identificadorProcessoViagem', keywords: ['IDENTIFICADOR DO PROCESSO DE VIAGEM', 'PROCESSO DE VIAGEM'] },
 
-    // Pagamento
-    if (h.includes('CÓDIGO DO ÓRGÃO SUPERIOR') || h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-    if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR') || h.includes('NOME DO ÓRGÃO SUPERIOR')) return 'nomeOrgaoSuperior';
-    if (h.includes('CÓDIGO ÓRGÃO PAGADOR') || h.includes('CODIGO ORGAO PAGADOR')) return 'codigoOrgaoPagador';
-    if (h.includes('NOME ÓRGÃO PAGADOR') || h.includes('NOME ORGAO PAGADOR')) return 'nomeOrgaoPagador';
-    if (h.includes('CÓDIGO UG PAGADORA') || h.includes('CODIGO UG PAGADORA')) return 'codigoUgPagadora';
-    if (h.includes('NOME UG PAGADORA')) return 'nomeUgPagadora';
-    if (h.includes('TIPO DE PAGAMENTO') || h.includes('TIPO PAGAMENTO')) return 'tipoPagamento';
-    if (h.includes('VALOR DA DESPESA') || h.includes('VALOR DESPESA')) return 'valorDespesa';
+    // Órgãos Pagadores e Solicitantes
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+    { key: 'codigoOrgaoPagador', keywords: ['ORGAO PAGADOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoPagador', keywords: ['ORGAO PAGADOR'], require: ['NOME'] },
+    { key: 'codigoUgPagadora', keywords: ['UG PAGADORA', 'UNIDADE GESTORA PAGADORA'], require: ['CODIGO'] },
+    { key: 'nomeUgPagadora', keywords: ['UG PAGADORA', 'UNIDADE GESTORA PAGADORA'], require: ['NOME'] },
+    { key: 'codigoOrgaoSolicitante', keywords: ['SOLICITANTE'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSolicitante', keywords: ['SOLICITANTE'], require: ['NOME'] },
 
-    // Passagem
-    if (h === 'MEIO DE TRANSPORTE') return 'meioTransporte';
-    if (h.includes('PAÍS - ORIGEM IDA') || h.includes('PAÍS – ORIGEM IDA') || h.includes('PAIS - ORIGEM IDA')) return 'paisOrigemIda';
-    if (h.includes('UF - ORIGEM IDA') || h.includes('UF – ORIGEM IDA')) return 'ufOrigemIda';
-    if (h.includes('CIDADE - ORIGEM IDA') || h.includes('CIDADE – ORIGEM IDA')) return 'cidadeOrigemIda';
-    if (h.includes('PAÍS - DESTINO IDA') || h.includes('PAÍS – DESTINO IDA') || h.includes('PAIS - DESTINO IDA')) return 'paisDestinoIda';
-    if (h.includes('UF - DESTINO IDA') || h.includes('UF – DESTINO IDA')) return 'ufDestinoIda';
-    if (h.includes('CIDADE - DESTINO IDA') || h.includes('CIDADE – DESTINO IDA')) return 'cidadeDestinoIda';
-    if (h.includes('PAÍS - ORIGEM VOLTA') || h.includes('PAÍS – ORIGEM VOLTA') || h.includes('PAIS - ORIGEM VOLTA')) return 'paisOrigemVolta';
-    if (h.includes('UF - ORIGEM VOLTA') || h.includes('UF – ORIGEM VOLTA')) return 'ufOrigemVolta';
-    if (h.includes('CIDADE - ORIGEM VOLTA') || h.includes('CIDADE – ORIGEM VOLTA')) return 'cidadeOrigemVolta';
-    if (h.includes('PAÍS - DESTINO VOLTA') || h.includes('PAÍS – DESTINO VOLTA') || h.includes('PAIS - DESTINO VOLTA')) return 'paisDestinoVolta';
-    if (h.includes('UF - DESTINO VOLTA') || h.includes('UF – DESTINO VOLTA') || h.includes('UF - DESTINO VOLTA')) return 'ufDestinoVolta';
-    if (h.includes('CIDADE - DESTINO VOLTA') || h.includes('CIDADE – DESTINO VOLTA')) return 'cidadeDestinoVolta';
-    if (h.includes('VALOR DA PASSAGEM') || h.includes('VALOR PASSAGEM')) return 'valorPassagem';
-    if (h.includes('TAXA DE SERVIÇO') || h.includes('TAXA SERVIÇO') || h.includes('TAXA SERVICO')) return 'taxaServico';
+    // Tipos e Valores
+    { key: 'tipoPagamento', keywords: ['TIPO DE PAGAMENTO', 'TIPO PAGAMENTO'] },
+    { key: 'valorDespesa', matchExact: ['VALOR'], keywords: ['VALOR DA DESPESA', 'VALOR DESPESA'] },
+    { key: 'meioTransporte', keywords: ['MEIO DE TRANSPORTE', 'MEIO TRANSPORTE'] },
+    { key: 'valorPassagem', keywords: ['VALOR DA PASSAGEM', 'VALOR PASSAGEM'] },
+    { key: 'taxaServico', keywords: ['TAXA DE SERVICO', 'TAXA SERVICO'] },
+    { key: 'valorDiarias', keywords: ['VALOR DIARIAS', 'VALOR DIARIA'] },
+    { key: 'valorPassagens', keywords: ['VALOR PASSAGENS'] },
+    { key: 'valorOutrosGastos', keywords: ['VALOR OUTROS GASTOS', 'OUTROS GASTOS'] },
 
-    // Trecho
-    if (h.includes('SEQUÊNCIA TRECHO') || h.includes('SEQUENCIA TRECHO')) return 'sequenciaTrecho';
-    if (h.includes('ORIGEM - DATA') || h.includes('ORIGEM – DATA')) return 'origemData';
-    if (h.includes('ORIGEM - PAÍS') || h.includes('ORIGEM – PAÍS') || h.includes('ORIGEM - PAIS')) return 'origemPais';
-    if (h.includes('ORIGEM - UF') || h.includes('ORIGEM – UF')) return 'origemUf';
-    if (h.includes('ORIGEM - CIDADE') || h.includes('ORIGEM – CIDADE')) return 'origemCidade';
-    if (h.includes('DESTINO - DATA') || h.includes('DESTINO – DATA')) return 'destinoData';
-    if (h.includes('DESTINO - PAÍS') || h.includes('DESTINO – PAÍS') || h.includes('DESTINO - PAIS')) return 'destinoPais';
-    if (h.includes('DESTINO - UF') || h.includes('DESTINO – UF')) return 'destinoUf';
-    if (h.includes('DESTINO - CIDADE') || h.includes('DESTINO – CIDADE')) return 'destinoCidade';
-    if (h.includes('NÚMERO DIÁRIAS') || h.includes('NUMERO DIARIAS')) return 'numeroDiarias';
-    if (h.includes('MISSÃO?') || h.includes('MISSAO?')) return 'missao';
+    // Passagens - Ida
+    { key: 'paisOrigemIda', keywords: ['ORIGEM IDA'], require: ['PAIS'] },
+    { key: 'ufOrigemIda', keywords: ['ORIGEM IDA'], require: ['UF'] },
+    { key: 'cidadeOrigemIda', keywords: ['ORIGEM IDA'], require: ['CIDADE'] },
+    { key: 'paisDestinoIda', keywords: ['DESTINO IDA'], require: ['PAIS'] },
+    { key: 'ufDestinoIda', keywords: ['DESTINO IDA'], require: ['UF'] },
+    { key: 'cidadeDestinoIda', keywords: ['DESTINO IDA'], require: ['CIDADE'] },
 
-    // Viagem
-    if (h === 'SITUAÇÃO' || h === 'SITUACAO') return 'situacao';
-    if (h.includes('CÓDIGO SOLICITANTE') || h.includes('CODIGO SOLICITANTE')) return 'codigoOrgaoSolicitante';
-    if (h.includes('NOME ÓRGÃO SOLICITANTE') || h.includes('NOME ORGAO SOLICITANTE')) return 'nomeOrgaoSolicitante';
-    if (h === 'CPF VIAJANTE') return 'cpfViajante';
-    if (h === 'NOME') return 'nome';
-    if (h === 'CARGO') return 'cargo';
-    if (h.includes('PERÍODO - DATA DE INÍCIO') || h.includes('PERIODO - DATA DE INICIO')) return 'periodoDataInicio';
-    if (h.includes('PERÍODO - DATA DE FIM') || h.includes('PERIODO - DATA DE FIM') || h.includes('PERÍODO - DATA DE FIM')) return 'periodoDataFim';
-    if (h === 'DESTINOS') return 'destinos';
-    if (h === 'MOTIVO') return 'motivo';
-    if (h.includes('VALOR DIÁRIAS') || h.includes('VALOR DIARIAS')) return 'valorDiarias';
-    if (h.includes('VALOR PASSAGENS')) return 'valorPassagens';
-    if (h.includes('VALOR OUTROS GASTOS')) return 'valorOutrosGastos';
+    // Passagens - Volta
+    { key: 'paisOrigemVolta', keywords: ['ORIGEM VOLTA'], require: ['PAIS'] },
+    { key: 'ufOrigemVolta', keywords: ['ORIGEM VOLTA'], require: ['UF'] },
+    { key: 'cidadeOrigemVolta', keywords: ['ORIGEM VOLTA'], require: ['CIDADE'] },
+    { key: 'paisDestinoVolta', keywords: ['DESTINO VOLTA'], require: ['PAIS'] },
+    { key: 'ufDestinoVolta', keywords: ['DESTINO VOLTA'], require: ['UF'] },
+    { key: 'cidadeDestinoVolta', keywords: ['DESTINO VOLTA'], require: ['CIDADE'] },
 
-    return header.trim();
+    // Trechos
+    { key: 'sequenciaTrecho', keywords: ['SEQUENCIA TRECHO', 'TRECHO'], require: ['SEQUENCIA'] },
+    { key: 'origemData', keywords: ['ORIGEM'], require: ['DATA'] },
+    { key: 'origemPais', keywords: ['ORIGEM'], require: ['PAIS'] },
+    { key: 'origemUf', keywords: ['ORIGEM'], require: ['UF'] },
+    { key: 'origemCidade', keywords: ['ORIGEM'], require: ['CIDADE'] },
+    { key: 'destinoData', keywords: ['DESTINO'], require: ['DATA'] },
+    { key: 'destinoPais', keywords: ['DESTINO'], require: ['PAIS'] },
+    { key: 'destinoUf', keywords: ['DESTINO'], require: ['UF'] },
+    { key: 'destinoCidade', keywords: ['DESTINO'], require: ['CIDADE'] },
+    { key: 'numeroDiarias', keywords: ['NUMERO DIARIAS', 'DIARIAS'], require: ['NUMERO'] },
+    { key: 'missao', keywords: ['MISSAO'] },
+
+    // Viagem Geral e Viajante
+    { key: 'situacao', matchExact: ['SITUACAO'] },
+    { key: 'cpfViajante', keywords: ['VIAJANTE'], require: ['CPF'] },
+    { key: 'nome', matchExact: ['NOME', 'NOME VIAJANTE'] },
+    { key: 'cargo', matchExact: ['CARGO'] },
+    { key: 'periodoDataInicio', keywords: ['PERIODO', 'DATA DE INICIO', 'DATA INICIO'], require: ['INICIO'] },
+    { key: 'periodoDataFim', keywords: ['PERIODO', 'DATA DE FIM', 'DATA FIM'], require: ['FIM'] },
+    { key: 'destinos', matchExact: ['DESTINOS'] },
+    { key: 'motivo', matchExact: ['MOTIVO'] },
+];
+
+// Helper genérico para resolução de chaves
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
 }
 
 async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, logPrefix: string, metadata: ReferenceMetadata): Promise<number> {
@@ -103,22 +136,26 @@ async function processGenericStream(stream: NodeJS.ReadableStream, schema: any, 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => mapHeaders(header),
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, VIAGENS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
                 ...data,
                 ...metadata,
             });
+
             if (batch.length >= BATCH_SIZE) {
                 await persistData(schema, batch, logPrefix);
                 totalProcessed += batch.length;
                 batch = [];
             }
         }
+
         if (batch.length > 0) {
             await persistData(schema, batch, logPrefix);
             totalProcessed += batch.length;

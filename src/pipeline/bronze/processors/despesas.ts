@@ -1,14 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
-import { 
-    DespesasEmpenho, 
-    DespesasLiquidacao, 
-    DespesasPagamento 
+import {
+    DespesasEmpenho,
+    DespesasLiquidacao,
+    DespesasPagamento,
+    DespesasItemEmpenho,
+    DespesasItemEmpenhoHistorico,
+    DespesasLiquidacaoEmpenhosImpactados,
+    DespesasPagamentoEmpenhosImpactados,
+    DespesasPagamentoFavorecidosFinais,
+    DespesasPagamentoListaBancos,
+    DespesasPagamentoListaFaturas,
+    DespesasPagamentoListaPrecatorios
 } from '../../../database/bronze_schema.js';
 import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
 
@@ -191,36 +201,326 @@ async function persistPagamento(data: (typeof DespesasPagamento.$inferInsert)[])
     }
 }
 
-function mapCommonHeaders(h: string): string | null {
-    if (h === 'DATA EMISSÃO' || h === 'DATA EMISSAO') return 'dataEmissao';
-    if (h === 'CÓDIGO TIPO DOCUMENTO' || h === 'CODIGO TIPO DOCUMENTO') return 'codigoTipoDocumento';
-    if (h === 'TIPO DOCUMENTO') return 'tipoDocumento';
-    if (h === 'CÓDIGO ÓRGÃO SUPERIOR' || h === 'CODIGO ORGAO SUPERIOR') return 'codigoOrgaoSuperior';
-    if (h === 'ÓRGÃO SUPERIOR' || h === 'ORGAO SUPERIOR') return 'orgaoSuperior';
-    if (h === 'CÓDIGO ÓRGÃO' || h === 'CODIGO ORGAO') return 'codigoOrgao';
-    if (h === 'ÓRGÃO' || h === 'ORGAO') return 'orgao';
-    if (h === 'CÓDIGO UNIDADE GESTORA' || h === 'CODIGO UNIDADE GESTORA') return 'codigoUnidadeGestora';
-    if (h === 'UNIDADE GESTORA') return 'unidadeGestora';
-    if (h === 'CÓDIGO GESTÃO' || h === 'CODIGO GESTAO') return 'codigoGestao';
-    if (h === 'GESTÃO' || h === 'GESTAO') return 'gestao';
-    if (h === 'CÓDIGO FAVORECIDO' || h === 'CODIGO FAVORECIDO') return 'codigoFavorecido';
-    if (h === 'FAVORECIDO') return 'favorecido';
-    if (h === 'OBSERVAÇÃO' || h === 'OBSERVACAO') return 'observacao';
-    if (h === 'CÓDIGO CATEGORIA DE DESPESA' || h === 'CODIGO CATEGORIA DE DESPESA') return 'codigoCategoriaDespesa';
-    if (h === 'CATEGORIA DE DESPESA') return 'categoriaDespesa';
-    if (h === 'CÓDIGO GRUPO DE DESPESA' || h === 'CODIGO GRUPO DE DESPESA') return 'codigoGrupoDespesa';
-    if (h === 'GRUPO DE DESPESA') return 'grupoDespesa';
-    if (h === 'CÓDIGO MODALIDADE DE APLICAÇÃO' || h === 'CODIGO MODALIDADE DE APLICACAO') return 'codigoModalidadeAplicacao';
-    if (h === 'MODALIDADE DE APLICAÇÃO' || h === 'MODALIDADE DE APLICACAO') return 'modalidadeAplicacao';
-    if (h === 'CÓDIGO ELEMENTO DE DESPESA' || h === 'CODIGO ELEMENTO DE DESPESA') return 'codigoElementoDespesa';
-    if (h === 'ELEMENTO DE DESPESA') return 'elementoDespesa';
-    if (h === 'CÓDIGO PLANO ORÇAMENTÁRIO' || h === 'CODIGO PLANO ORCAMENTARIO') return 'codigoPlanoOrcamentario';
-    if (h === 'PLANO ORÇAMENTÁRIO' || h === 'PLANO ORCAMENTARIO') return 'planoOrcamentario';
-    if (h === 'CÓDIGO PROGRAMA GOVERNO' || h === 'CODIGO PROGRAMA GOVERNO') return 'codigoProgramaGoverno';
-    if (h === 'NOME PROGRAMA GOVERNO') return 'nomeProgramaGoverno';
-    if (h === 'PROCESSO') return 'processo';
-    if (h === 'VALOR UTILIZADO NA CONVERSÃO' || h === 'VALOR UTILIZADO NA CONVERSAO') return 'valorUtilizadoConversao';
-    return null;
+async function persistItemEmpenho(data: (typeof DespesasItemEmpenho.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasItemEmpenho).values(data);
+    } catch (error) {
+        logger.forMethod('persistItemEmpenho').fatal({ data: error }, 'Falha na persistência de Item Empenho');
+        throw error;
+    }
+}
+
+async function persistItemEmpenhoHistorico(data: (typeof DespesasItemEmpenhoHistorico.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasItemEmpenhoHistorico).values(data);
+    } catch (error) {
+        logger.forMethod('persistItemEmpenhoHistorico').fatal({ data: error }, 'Falha na persistência de Item Empenho Historico');
+        throw error;
+    }
+}
+
+async function persistLiquidacaoEmpenhosImpactados(data: (typeof DespesasLiquidacaoEmpenhosImpactados.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasLiquidacaoEmpenhosImpactados).values(data);
+    } catch (error) {
+        logger.forMethod('persistLiquidacaoEmpenhosImpactados').fatal({ data: error }, 'Falha na persistência de Liquidacao Empenhos Impactados');
+        throw error;
+    }
+}
+
+async function persistPagamentoEmpenhosImpactados(data: (typeof DespesasPagamentoEmpenhosImpactados.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasPagamentoEmpenhosImpactados).values(data);
+    } catch (error) {
+        logger.forMethod('persistPagamentoEmpenhosImpactados').fatal({ data: error }, 'Falha na persistência de Pagamento Empenhos Impactados');
+        throw error;
+    }
+}
+
+async function persistPagamentoFavorecidosFinais(data: (typeof DespesasPagamentoFavorecidosFinais.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasPagamentoFavorecidosFinais).values(data);
+    } catch (error) {
+        logger.forMethod('persistPagamentoFavorecidosFinais').fatal({ data: error }, 'Falha na persistência de Pagamento Favorecidos Finais');
+        throw error;
+    }
+}
+
+async function persistPagamentoListaBancos(data: (typeof DespesasPagamentoListaBancos.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasPagamentoListaBancos).values(data);
+    } catch (error) {
+        logger.forMethod('persistPagamentoListaBancos').fatal({ data: error }, 'Falha na persistência de Pagamento Lista Bancos');
+        throw error;
+    }
+}
+
+async function persistPagamentoListaFaturas(data: (typeof DespesasPagamentoListaFaturas.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasPagamentoListaFaturas).values(data);
+    } catch (error) {
+        logger.forMethod('persistPagamentoListaFaturas').fatal({ data: error }, 'Falha na persistência de Pagamento Lista Faturas');
+        throw error;
+    }
+}
+
+async function persistPagamentoListaPrecatorios(data: (typeof DespesasPagamentoListaPrecatorios.$inferInsert)[]) {
+    try {
+        await bronze_db.insert(DespesasPagamentoListaPrecatorios).values(data);
+    } catch (error) {
+        logger.forMethod('persistPagamentoListaPrecatorios').fatal({ data: error }, 'Falha na persistência de Pagamento Lista Precatorios');
+        throw error;
+    }
+}
+
+const ITEM_EMPENHO_HEADER_RULES = [
+    { key: 'idEmpenho', matchExact: ['ID EMPENHO'] },
+    { key: 'codigoEmpenho', keywords: ['EMPENHO'], require: ['CODIGO'] },
+    { key: 'codigoCategoriaDespesa', keywords: ['CATEGORIA DE DESPESA'], require: ['CODIGO'] },
+    { key: 'categoriaDespesa', keywords: ['CATEGORIA DE DESPESA'] },
+    { key: 'codigoGrupoDespesa', keywords: ['GRUPO DE DESPESA'], require: ['CODIGO'] },
+    { key: 'grupoDespesa', keywords: ['GRUPO DE DESPESA'] },
+    { key: 'codigoModalidadeAplicacao', keywords: ['MODALIDADE DE APLICACAO'], require: ['CODIGO'] },
+    { key: 'modalidadeAplicacao', keywords: ['MODALIDADE DE APLICACAO'] },
+    { key: 'codigoElementoDespesa', keywords: ['ELEMENTO DE DESPESA'], require: ['CODIGO'] },
+    { key: 'elementoDespesa', keywords: ['ELEMENTO DE DESPESA'] },
+    { key: 'codigoSubElementoDespesa', keywords: ['SUBELEMENTO DE DESPESA', 'SUB ELEMENTO'], require: ['CODIGO'] },
+    { key: 'subElementoDespesa', keywords: ['SUBELEMENTO DE DESPESA', 'SUB ELEMENTO'] },
+    { key: 'descricao', matchExact: ['DESCRICAO'] },
+    { key: 'quantidade', matchExact: ['QUANTIDADE'] },
+    { key: 'valorUnitario', keywords: ['VALOR UNITARIO'] },
+    { key: 'valorTotal', keywords: ['VALOR TOTAL'] },
+    { key: 'sequencial', matchExact: ['SEQUENCIAL'] },
+    { key: 'valorAtual', keywords: ['VALOR ATUAL'] },
+];
+
+const ITEM_EMPENHO_HISTORICO_HEADER_RULES = [
+    { key: 'idEmpenho', matchExact: ['ID EMPENHO'] },
+    { key: 'codigoEmpenho', keywords: ['EMPENHO'], require: ['CODIGO'] },
+    { key: 'sequencial', matchExact: ['SEQUENCIAL'] },
+    { key: 'tipoOperacao', keywords: ['TIPO OPERACAO'] },
+    { key: 'dataOperacao', keywords: ['DATA OPERACAO'] },
+    { key: 'quantidadeItem', keywords: ['QUANTIDADE ITEM'] },
+    { key: 'valorUnitarioItem', keywords: ['VALOR UNITARIO ITEM'] },
+    { key: 'valorTotalItem', keywords: ['VALOR TOTAL ITEM'] },
+];
+
+const IMPACTADOS_HEADER_RULES = [
+    { key: 'codigoLiquidacao', keywords: ['LIQUIDACAO'], require: ['CODIGO'] },
+    { key: 'codigoPagamento', keywords: ['PAGAMENTO'], require: ['CODIGO'] },
+    { key: 'codigoEmpenho', keywords: ['EMPENHO'], require: ['CODIGO'] },
+    { key: 'codigoNaturezaDespesaCompleta', keywords: ['NATUREZA DESPESA COMPLETA'] },
+    { key: 'subitem', matchExact: ['SUBITEM'] },
+    { key: 'valorLiquidado', keywords: ['VALOR LIQUIDADO'] },
+    { key: 'valorPago', keywords: ['VALOR PAGO'] },
+    { key: 'valorRestosAPagarInscritos', keywords: ['RESTOS A PAGAR INSCRITOS'] },
+    { key: 'valorRestosAPagarCancelado', keywords: ['RESTOS A PAGAR CANCELADO'] },
+    { key: 'valorRestosAPagarPagos', keywords: ['RESTOS A PAGAR PAGOS'] },
+];
+
+const FAVORECIDOS_FINAIS_HEADER_RULES = [
+    { key: 'codigoPagamento', keywords: ['PAGAMENTO'], require: ['CODIGO'] },
+    { key: 'codigoLista', keywords: ['LISTA'], require: ['CODIGO'] },
+    { key: 'dataEmissao', keywords: ['DATA EMISSAO'] },
+    { key: 'codigoFavorecido', keywords: ['FAVORECIDO'], require: ['CODIGO'] },
+    { key: 'favorecido', matchExact: ['FAVORECIDO'] },
+    { key: 'valorPagamento', keywords: ['VALOR DO PAGAMENTO'] },
+];
+
+const LISTA_BANCOS_HEADER_RULES = [
+    { key: 'codigoPagamento', keywords: ['PAGAMENTO'], require: ['CODIGO'] },
+    { key: 'codigoLista', keywords: ['LISTA'], require: ['CODIGO'] },
+    { key: 'dataEmissao', keywords: ['DATA EMISSAO'] },
+    { key: 'codigoBanco', keywords: ['BANCO'], require: ['CODIGO'] },
+    { key: 'nomeBanco', keywords: ['NOME BANCO'] },
+    { key: 'agencia', matchExact: ['AGENCIA'] },
+    { key: 'valor', matchExact: ['VALOR EM R$'] },
+];
+
+const LISTA_FATURAS_HEADER_RULES = [
+    { key: 'codigoPagamento', keywords: ['PAGAMENTO'], require: ['CODIGO'] },
+    { key: 'codigoLista', keywords: ['LISTA'], require: ['CODIGO'] },
+    { key: 'dataEmissao', keywords: ['DATA EMISSAO'] },
+    { key: 'codigoSequencia', keywords: ['SEQUENCIA'], require: ['CODIGO'] },
+    { key: 'valorLancamento', keywords: ['VALOR LANCAMENTO'] },
+    { key: 'valorDesconto', keywords: ['VALOR DESCONTO'] },
+    { key: 'valorJuros', keywords: ['VALOR JUROS'] },
+    { key: 'valorDeducao', keywords: ['VALOR DEDUCAO'] },
+    { key: 'valorAcrescimo', keywords: ['VALOR ACRESCIMO'] },
+];
+
+const LISTA_PRECATORIOS_HEADER_RULES = [
+    { key: 'codigoPagamento', keywords: ['PAGAMENTO'], require: ['CODIGO'] },
+    { key: 'codigoLista', keywords: ['LISTA'], require: ['CODIGO'] },
+    { key: 'dataEmissao', keywords: ['DATA EMISSAO'] },
+    { key: 'numeroParcela', keywords: ['NUMERO PARCELA'] },
+    { key: 'valorPrecatorio', keywords: ['VALOR PRECATORIO'] },
+];
+
+async function createProcessStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata, rules: any, persistFn: any, logName: string): Promise<number> {
+    let batch: any[] = [];
+    let totalProcessed = 0;
+    try {
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveDespesasHeaderKey(header, rules),
+            }));
+
+        for await (const data of parser) {
+            batch.push({ ...data, ...metadata });
+            if (batch.length >= BATCH_SIZE) {
+                await persistFn(batch);
+                totalProcessed += batch.length;
+                batch = [];
+            }
+        }
+        if (batch.length > 0) {
+            await persistFn(batch);
+            totalProcessed += batch.length;
+        }
+        logger.forMethod(logName).info({ data: { rowsProcessed: totalProcessed } }, `Processamento de ${logName} concluído`);
+        return totalProcessed;
+    } catch (error) {
+        logger.forMethod(logName).error({ data: error }, `Erro ao processar stream de ${logName}`);
+        throw error;
+    }
+}
+
+const COMMON_HEADER_RULES = [
+    { key: 'dataEmissao', keywords: ['DATA EMISSAO', 'DATA DE EMISSAO'] },
+    { key: 'codigoTipoDocumento', keywords: ['TIPO DOCUMENTO'], require: ['CODIGO'] },
+    { key: 'tipoDocumento', matchExact: ['TIPO DOCUMENTO'] },
+
+    // Hierarquia Órgão e UG (Ordem importa)
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'orgaoSuperior', keywords: ['ORGAO SUPERIOR'] },
+    { key: 'codigoOrgao', keywords: ['CODIGO ORGAO', 'CODIGO DO ORGAO'] },
+    { key: 'orgao', matchExact: ['ORGAO'] },
+
+    { key: 'codigoUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['CODIGO'] },
+    { key: 'unidadeGestora', keywords: ['UNIDADE GESTORA'] },
+
+    { key: 'codigoGestao', keywords: ['GESTAO'], require: ['CODIGO'] },
+    { key: 'gestao', matchExact: ['GESTAO'] },
+
+    { key: 'codigoFavorecido', keywords: ['FAVORECIDO'], require: ['CODIGO'] },
+    { key: 'favorecido', matchExact: ['FAVORECIDO', 'NOME FAVORECIDO'] },
+
+    { key: 'observacao', keywords: ['OBSERVACAO'] },
+
+    // Classificação Orçamentária
+    { key: 'codigoCategoriaDespesa', keywords: ['CATEGORIA DE DESPESA', 'CATEGORIA DESPESA'], require: ['CODIGO'] },
+    { key: 'categoriaDespesa', keywords: ['CATEGORIA DE DESPESA', 'CATEGORIA DESPESA'] },
+    { key: 'codigoGrupoDespesa', keywords: ['GRUPO DE DESPESA', 'GRUPO DESPESA'], require: ['CODIGO'] },
+    { key: 'grupoDespesa', keywords: ['GRUPO DE DESPESA', 'GRUPO DESPESA'] },
+    { key: 'codigoModalidadeAplicacao', keywords: ['MODALIDADE DE APLICACAO', 'MODALIDADE APLICACAO'], require: ['CODIGO'] },
+    { key: 'modalidadeAplicacao', keywords: ['MODALIDADE DE APLICACAO', 'MODALIDADE APLICACAO'] },
+    { key: 'codigoElementoDespesa', keywords: ['ELEMENTO DE DESPESA', 'ELEMENTO DESPESA'], require: ['CODIGO'] },
+    { key: 'elementoDespesa', keywords: ['ELEMENTO DE DESPESA', 'ELEMENTO DESPESA'] },
+    { key: 'codigoPlanoOrcamentario', keywords: ['PLANO ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'planoOrcamentario', keywords: ['PLANO ORCAMENTARIO'] },
+
+    { key: 'codigoProgramaGoverno', keywords: ['PROGRAMA GOVERNO'], require: ['CODIGO'] },
+    { key: 'nomeProgramaGoverno', keywords: ['PROGRAMA GOVERNO'], require: ['NOME'] },
+    { key: 'processo', keywords: ['PROCESSO', 'NUMERO PROCESSO'] },
+    { key: 'valorUtilizadoConversao', keywords: ['VALOR UTILIZADO NA CONVERSAO', 'VALOR UTILIZADO CONVERSAO'] },
+];
+
+const EMPENHO_HEADER_RULES = [
+    { key: 'idEmpenho', matchExact: ['ID EMPENHO'] },
+    { key: 'codigoEmpenhoResumido', keywords: ['EMPENHO RESUMIDO'] },
+    { key: 'codigoEmpenho', keywords: ['EMPENHO'], require: ['CODIGO'] },
+    { key: 'tipoEmpenho', keywords: ['TIPO EMPENHO', 'TIPO DE EMPENHO'] },
+    { key: 'especieEmpenho', keywords: ['ESPECIE EMPENHO', 'ESPECIE DE EMPENHO'] },
+
+    { key: 'codigoEsferaOrcamentaria', keywords: ['ESFERA ORCAMENTARIA'], require: ['CODIGO'] },
+    { key: 'esferaOrcamentaria', keywords: ['ESFERA ORCAMENTARIA'] },
+
+    { key: 'codigoTipoCredito', keywords: ['TIPO CREDITO', 'TIPO DE CREDITO'], require: ['CODIGO'] },
+    { key: 'tipoCredito', keywords: ['TIPO CREDITO', 'TIPO DE CREDITO'] },
+
+    { key: 'codigoGrupoFonteRecurso', keywords: ['GRUPO FONTE RECURSO'], require: ['CODIGO'] },
+    { key: 'grupoFonteRecurso', keywords: ['GRUPO FONTE RECURSO'] },
+    { key: 'codigoFonteRecurso', keywords: ['FONTE RECURSO'], require: ['CODIGO'] },
+    { key: 'fonteRecurso', keywords: ['FONTE RECURSO'] },
+
+    { key: 'codigoUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['CODIGO'] },
+    { key: 'unidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'] },
+
+    { key: 'codigoSubfuncao', keywords: ['SUBFUNCAO'], require: ['CODIGO'] },
+    { key: 'subfuncao', keywords: ['SUBFUNCAO'] },
+    { key: 'codigoFuncao', keywords: ['FUNCAO'], require: ['CODIGO'] },
+    { key: 'funcao', matchExact: ['FUNCAO'] },
+
+    { key: 'codigoPrograma', keywords: ['PROGRAMA'], require: ['CODIGO'] },
+    { key: 'programa', matchExact: ['PROGRAMA'] },
+
+    { key: 'codigoAcao', keywords: ['ACAO'], require: ['CODIGO'] },
+    { key: 'acao', matchExact: ['ACAO'] },
+
+    { key: 'linguagemCidada', keywords: ['LINGUAGEM CIDADA'] },
+    { key: 'codigoSubtituloLocalizador', keywords: ['SUBTITULO LOCALIZADOR', 'SUBTITULO (LOCALIZADOR)'], require: ['CODIGO'] },
+    { key: 'subtituloLocalizador', keywords: ['SUBTITULO LOCALIZADOR', 'SUBTITULO (LOCALIZADOR)'] },
+
+    { key: 'autorEmenda', keywords: ['AUTOR EMENDA'] },
+    { key: 'modalidadeLicitacao', keywords: ['MODALIDADE DE LICITACAO', 'MODALIDADE LICITACAO'] },
+    { key: 'inciso', keywords: ['INCISO'] },
+    { key: 'amparo', keywords: ['AMPARO'] },
+    { key: 'referenciaDispensaInexigibilidade', keywords: ['REFERENCIA DE DISPENSA', 'DISPENSA OU INEXIGIBILIDADE'] },
+    { key: 'codigoConvenio', keywords: ['CONVENIO'], require: ['CODIGO'] },
+    { key: 'contratoRepasseTermoParceriaOutros', keywords: ['CONTRATO DE REPASSE', 'TERMO DE PARCERIA'] },
+    { key: 'valorOriginalEmpenho', keywords: ['VALOR ORIGINAL DO EMPENHO', 'VALOR ORIGINAL EMPENHO'] },
+    { key: 'valorEmpenhoConvertido', keywords: ['EMPENHO CONVERTIDO'] },
+];
+
+const LIQUIDACAO_HEADER_RULES = [
+    { key: 'codigoLiquidacaoResumido', keywords: ['LIQUIDACAO RESUMIDO'] },
+    { key: 'codigoLiquidacao', keywords: ['LIQUIDACAO'], require: ['CODIGO'] },
+];
+
+const PAGAMENTO_HEADER_RULES = [
+    { key: 'codigoPagamentoResumido', keywords: ['PAGAMENTO RESUMIDO'] },
+    { key: 'codigoPagamento', keywords: ['PAGAMENTO'], require: ['CODIGO'] },
+    { key: 'tipoOb', keywords: ['TIPO OB'] },
+    { key: 'extraorcamentario', keywords: ['EXTRAORCAMENTARIO'] },
+    { key: 'valorOriginalPagamento', keywords: ['VALOR ORIGINAL DO PAGAMENTO', 'VALOR ORIGINAL PAGAMENTO'] },
+    { key: 'valorPagamentoConvertido', keywords: ['PAGAMENTO CONVERTIDO'] },
+];
+
+// Helper para combinar as regras comuns + específicas com priorização
+function resolveDespesasHeaderKey(header: string, specificRules: Array<any>): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    // 1. Tenta casar primeiro nas regras específicas da tabela (Empenho/Liquidação/Pagamento)
+    for (const rule of specificRules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some((kw: string) => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some((req: string) => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    // 2. Se não casou, tenta as regras comuns (mapCommonHeaders)
+    for (const rule of COMMON_HEADER_RULES) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some((kw: string) => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some((req: string) => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
 }
 
 async function processEmpenhoStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
@@ -229,52 +529,12 @@ async function processEmpenhoStream(stream: NodeJS.ReadableStream, metadata: Ref
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-                
-                if (h === 'ID EMPENHO') return 'idEmpenho';
-                if (h === 'CÓDIGO EMPENHO' || h === 'CODIGO EMPENHO') return 'codigoEmpenho';
-                if (h === 'CÓDIGO EMPENHO RESUMIDO' || h === 'CODIGO EMPENHO RESUMIDO') return 'codigoEmpenhoResumido';
-                if (h === 'TIPO EMPENHO') return 'tipoEmpenho';
-                if (h === 'ESPÉCIE EMPENHO' || h === 'ESPECIE EMPENHO') return 'especieEmpenho';
-                if (h === 'CÓDIGO ESFERA ORÇAMENTÁRIA' || h === 'CODIGO ESFERA ORCAMENTARIA') return 'codigoEsferaOrcamentaria';
-                if (h === 'ESFERA ORÇAMENTÁRIA' || h === 'ESFERA ORCAMENTARIA') return 'esferaOrcamentaria';
-                if (h === 'CÓDIGO TIPO CRÉDITO' || h === 'CODIGO TIPO CREDITO') return 'codigoTipoCredito';
-                if (h === 'TIPO CRÉDITO' || h === 'TIPO CREDITO') return 'tipoCredito';
-                if (h === 'CÓDIGO GRUPO FONTE RECURSO' || h === 'CODIGO GRUPO FONTE RECURSO') return 'codigoGrupoFonteRecurso';
-                if (h === 'GRUPO FONTE RECURSO') return 'grupoFonteRecurso';
-                if (h === 'CÓDIGO FONTE RECURSO' || h === 'CODIGO FONTE RECURSO') return 'codigoFonteRecurso';
-                if (h === 'FONTE RECURSO') return 'fonteRecurso';
-                if (h === 'CÓDIGO UNIDADE ORÇAMENTÁRIA' || h === 'CODIGO UNIDADE ORCAMENTARIA') return 'codigoUnidadeOrcamentaria';
-                if (h === 'UNIDADE ORÇAMENTÁRIA' || h === 'UNIDADE ORCAMENTARIA') return 'unidadeOrcamentaria';
-                if (h === 'CÓDIGO FUNÇÃO' || h === 'CODIGO FUNCAO') return 'codigoFuncao';
-                if (h === 'FUNÇÃO' || h === 'FUNCAO') return 'funcao';
-                if (h === 'CÓDIGO SUBFUNÇÃO' || h === 'CODIGO SUBFUNCAO') return 'codigoSubfuncao';
-                if (h === 'SUBFUNÇÃO' || h === 'SUBFUNCAO') return 'subfuncao';
-                if (h === 'CÓDIGO PROGRAMA' || h === 'CODIGO PROGRAMA') return 'codigoPrograma';
-                if (h === 'PROGRAMA') return 'programa';
-                if (h === 'CÓDIGO AÇÃO' || h === 'CODIGO ACAO') return 'codigoAcao';
-                if (h === 'AÇÃO' || h === 'ACAO') return 'acao';
-                if (h === 'LINGUAGEM CIDADÃ' || h === 'LINGUAGEM CIDADA') return 'linguagemCidada';
-                if (h === 'CÓDIGO SUBTÍTULO (LOCALIZADOR)' || h === 'CODIGO SUBTITULO (LOCALIZADOR)') return 'codigoSubtituloLocalizador';
-                if (h === 'SUBTÍTULO (LOCALIZADOR)' || h === 'SUBTITULO (LOCALIZADOR)') return 'subtituloLocalizador';
-                if (h === 'AUTOR EMENDA') return 'autorEmenda';
-                if (h === 'MODALIDADE DE LICITAÇÃO' || h === 'MODALIDADE DE LICITACAO') return 'modalidadeLicitacao';
-                if (h === 'INCISO') return 'inciso';
-                if (h === 'AMPARO') return 'amparo';
-                if (h === 'REFERÊNCIA DE DISPENSA OU INEXIGIBILIDADE' || h === 'REFERENCIA DE DISPENSA OU INEXIGIBILIDADE') return 'referenciaDispensaInexigibilidade';
-                if (h === 'CÓDIGO CONVÊNIO' || h === 'CODIGO CONVENIO') return 'codigoConvenio';
-                if (h === 'CONTRATO DE REPASSE / TERMO DE PARCERIA / OUTROS') return 'contratoRepasseTermoParceriaOutros';
-                if (h === 'VALOR ORIGINAL DO EMPENHO') return 'valorOriginalEmpenho';
-                if (h === 'VALOR DO EMPENHO CONVERTIDO PRA R$' || h === 'VALOR DO EMPENHO CONVERTIDO PARA R$') return 'valorEmpenhoConvertido';
-                
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveDespesasHeaderKey(header, EMPENHO_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -306,19 +566,12 @@ async function processLiquidacaoStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-                
-                if (h === 'CÓDIGO LIQUIDAÇÃO' || h === 'CODIGO LIQUIDACAO') return 'codigoLiquidacao';
-                if (h === 'CÓDIGO LIQUIDAÇÃO RESUMIDO' || h === 'CODIGO LIQUIDACAO RESUMIDO') return 'codigoLiquidacaoResumido';
-                
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveDespesasHeaderKey(header, LIQUIDACAO_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -350,23 +603,12 @@ async function processPagamentoStream(stream: NodeJS.ReadableStream, metadata: R
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-                
-                if (h === 'CÓDIGO PAGAMENTO' || h === 'CODIGO PAGAMENTO') return 'codigoPagamento';
-                if (h === 'CÓDIGO PAGAMENTO RESUMIDO' || h === 'CODIGO PAGAMENTO RESUMIDO') return 'codigoPagamentoResumido';
-                if (h === 'TIPO OB') return 'tipoOb';
-                if (h === 'EXTRAORÇAMENTÁRIO' || h === 'EXTRAORCAMENTARIO') return 'extraorcamentario';
-                if (h === 'VALOR ORIGINAL DO PAGAMENTO') return 'valorOriginalPagamento';
-                if (h === 'VALOR DO PAGAMENTO CONVERTIDO PRA R$' || h === 'VALOR DO PAGAMENTO CONVERTIDO PARA R$') return 'valorPagamentoConvertido';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveDespesasHeaderKey(header, PAGAMENTO_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -439,18 +681,40 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         try {
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
-                            
-                            if (upperName.includes('_EMPENHO.CSV') && !upperName.includes('ITEM') && !upperName.includes('IMPACTADOS')) {
-                                rowsCount = await processEmpenhoStream(readStream, metadata);
-                            } else if (upperName.includes('_LIQUIDACAO.CSV') && !upperName.includes('IMPACTADOS')) {
+
+                            const streamEndPromise = new Promise<void>((resolveStream, rejectStream) => {
+                                readStream.on('end', resolveStream);
+                                readStream.on('error', rejectStream);
+                            });
+
+                            if (upperName.includes('_ITEMEMPENHOHISTORICO.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, ITEM_EMPENHO_HISTORICO_HEADER_RULES, persistItemEmpenhoHistorico, 'processItemEmpenhoHistorico');
+                            } else if (upperName.includes('_ITEMEMPENHO.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, ITEM_EMPENHO_HEADER_RULES, persistItemEmpenho, 'processItemEmpenho');
+                            } else if (upperName.includes('_LIQUIDACAO_EMPENHOSIMPACTADOS.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, IMPACTADOS_HEADER_RULES, persistLiquidacaoEmpenhosImpactados, 'processLiquidacaoEmpenhosImpactados');
+                            } else if (upperName.includes('_LIQUIDACAO.CSV')) {
                                 rowsCount = await processLiquidacaoStream(readStream, metadata);
-                            } else if (upperName.includes('_PAGAMENTO.CSV') && !upperName.includes('IMPACTADOS') && !upperName.includes('FAVORECIDOS') && !upperName.includes('LISTA')) {
+                            } else if (upperName.includes('_PAGAMENTO_EMPENHOSIMPACTADOS.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, IMPACTADOS_HEADER_RULES, persistPagamentoEmpenhosImpactados, 'processPagamentoEmpenhosImpactados');
+                            } else if (upperName.includes('_PAGAMENTO_FAVORECIDOSFINAIS.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, FAVORECIDOS_FINAIS_HEADER_RULES, persistPagamentoFavorecidosFinais, 'processPagamentoFavorecidosFinais');
+                            } else if (upperName.includes('_PAGAMENTO_LISTABANCOS.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, LISTA_BANCOS_HEADER_RULES, persistPagamentoListaBancos, 'processPagamentoListaBancos');
+                            } else if (upperName.includes('_PAGAMENTO_LISTAFATURAS.CSV') || upperName.includes('_PAGAMENTO_LISTAFATURA.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, LISTA_FATURAS_HEADER_RULES, persistPagamentoListaFaturas, 'processPagamentoListaFaturas');
+                            } else if (upperName.includes('_PAGAMENTO_LISTAPRECATÓRIOS.CSV') || upperName.includes('_PAGAMENTO_LISTAPRECATORIOS.CSV')) {
+                                rowsCount = await createProcessStream(readStream, metadata, LISTA_PRECATORIOS_HEADER_RULES, persistPagamentoListaPrecatorios, 'processPagamentoListaPrecatorios');
+                            } else if (upperName.includes('_PAGAMENTO.CSV')) {
                                 rowsCount = await processPagamentoStream(readStream, metadata);
+                            } else if (upperName.includes('_EMPENHO.CSV')) {
+                                rowsCount = await processEmpenhoStream(readStream, metadata);
                             } else {
-                                log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado por não ser o arquivo primário da etapa processada nesta sprint');
-                                readStream.resume(); 
+                                log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
+                                readStream.resume();
                             }
-                            
+
+                            await streamEndPromise;
                             fileTotal += rowsCount;
                         } catch (streamErr) {
                             reject(streamErr);

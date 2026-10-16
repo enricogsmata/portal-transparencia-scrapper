@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { OrcamentoDespesa } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -33,10 +34,6 @@ async function persistData(data: OrcamentoDespesaRow[]) {
                 nomeProgramaOrcamentario: sql`values(${OrcamentoDespesa.nomeProgramaOrcamentario})`,
                 codigoAcao: sql`values(${OrcamentoDespesa.codigoAcao})`,
                 nomeAcao: sql`values(${OrcamentoDespesa.nomeAcao})`,
-                codigoPlanoOrcamentario: sql`values(${OrcamentoDespesa.codigoPlanoOrcamentario})`,
-                planoOrcamentario: sql`values(${OrcamentoDespesa.planoOrcamentario})`,
-                codigoProgramaGoverno: sql`values(${OrcamentoDespesa.codigoProgramaGoverno})`,
-                nomeProgramaGoverno: sql`values(${OrcamentoDespesa.nomeProgramaGoverno})`,
                 codigoCategoriaEconomica: sql`values(${OrcamentoDespesa.codigoCategoriaEconomica})`,
                 nomeCategoriaEconomica: sql`values(${OrcamentoDespesa.nomeCategoriaEconomica})`,
                 codigoGrupoDespesa: sql`values(${OrcamentoDespesa.codigoGrupoDespesa})`,
@@ -60,72 +57,112 @@ async function persistData(data: OrcamentoDespesaRow[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const ORCAMENTO_DESPESA_HEADER_RULES: HeaderRule[] = [
+    { key: 'exercicio', matchExact: ['EXERCICIO'] },
+    { key: 'percentualRealizado', keywords: ['REALIZADO DO ORCAMENTO'] },
+
+    // Órgãos
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+    { key: 'codigoOrgaoSubordinado', keywords: ['ORGAO SUBORDINADO'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSubordinado', keywords: ['ORGAO SUBORDINADO'], require: ['NOME'] },
+
+    // Estrutura Orçamentária (SUBFUNÇÃO antes de FUNÇÃO)
+    { key: 'codigoUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['CODIGO'] },
+    { key: 'nomeUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['NOME'] },
+    { key: 'codigoSubfuncao', keywords: ['SUBFUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeSubfuncao', keywords: ['SUBFUNCAO'], require: ['NOME'] },
+    { key: 'codigoFuncao', keywords: ['FUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeFuncao', keywords: ['FUNCAO'], require: ['NOME'] },
+    { key: 'codigoProgramaOrcamentario', keywords: ['PROGRAMA ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'nomeProgramaOrcamentario', keywords: ['PROGRAMA ORCAMENTARIO'], require: ['NOME'] },
+    { key: 'codigoAcao', keywords: ['ACAO'], require: ['CODIGO'] },
+    { key: 'nomeAcao', keywords: ['ACAO'], require: ['NOME'] },
+    { key: 'codigoPlanoOrcamentario', keywords: ['PLANO ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'planoOrcamentario', keywords: ['PLANO ORCAMENTARIO'] },
+
+    // Classificação de Despesa
+    { key: 'codigoCategoriaEconomica', keywords: ['CATEGORIA ECONOMICA'], require: ['CODIGO'] },
+    { key: 'nomeCategoriaEconomica', keywords: ['CATEGORIA ECONOMICA'], require: ['NOME'] },
+    { key: 'codigoGrupoDespesa', keywords: ['GRUPO DE DESPESA', 'GRUPO DESPESA'], require: ['CODIGO'] },
+    { key: 'nomeGrupoDespesa', keywords: ['GRUPO DE DESPESA', 'GRUPO DESPESA'], require: ['NOME'] },
+    { key: 'codigoElementoDespesa', keywords: ['ELEMENTO DE DESPESA', 'ELEMENTO DESPESA'], require: ['CODIGO'] },
+    { key: 'nomeElementoDespesa', keywords: ['ELEMENTO DE DESPESA', 'ELEMENTO DESPESA'], require: ['NOME'] },
+
+    // Valores Orçamentários
+    { key: 'orcamentoInicial', keywords: ['ORCAMENTO INICIAL'] },
+    { key: 'orcamentoAtualizado', keywords: ['ORCAMENTO ATUALIZADO'] },
+    { key: 'orcamentoEmpenhado', keywords: ['ORCAMENTO EMPENHADO'] },
+    { key: 'orcamentoRealizado', keywords: ['ORCAMENTO REALIZADO'] },
+];
+
+// Helper genérico para busca de chave
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: OrcamentoDespesaRow[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-
-                if (h === 'EXERCÍCIO' || h === 'EXERCICIO') return 'exercicio';
-                if (h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO SUBORDINADO') || h.includes('CODIGO ORGAO SUBORDINADO')) return 'codigoOrgaoSubordinado';
-                if (h.includes('NOME ÓRGÃO SUBORDINADO') || h.includes('NOME ORGAO SUBORDINADO')) return 'nomeOrgaoSubordinado';
-                if (h.includes('CÓDIGO UNIDADE ORÇAMENTÁRIA') || h.includes('CODIGO UNIDADE ORCAMENTARIA')) return 'codigoUnidadeOrcamentaria';
-                if (h.includes('NOME UNIDADE ORÇAMENTÁRIA') || h.includes('NOME UNIDADE ORCAMENTARIA')) return 'nomeUnidadeOrcamentaria';
-                if (h.includes('CÓDIGO FUNÇÃO') || h.includes('CODIGO FUNCAO')) return 'codigoFuncao';
-                if (h.includes('NOME FUNÇÃO') || h.includes('NOME FUNCAO')) return 'nomeFuncao';
-                if (h.includes('CÓDIGO SUBFUNÇÃO') || h.includes('CODIGO SUBFUNCAO')) return 'codigoSubfuncao';
-                if (h.includes('NOME SUBFUNÇÃO') || h.includes('NOME SUBFUNCAO')) return 'nomeSubfuncao';
-                if (h.includes('CÓDIGO PROGRAMA ORÇAMENTÁRIO') || h.includes('CODIGO PROGRAMA ORCAMENTARIO')) return 'codigoProgramaOrcamentario';
-                if (h.includes('NOME PROGRAMA ORÇAMENTÁRIO') || h.includes('NOME PROGRAMA ORCAMENTARIO')) return 'nomeProgramaOrcamentario';
-                if (h.includes('CÓDIGO AÇÃO') || h.includes('CODIGO ACAO')) return 'codigoAcao';
-                if (h.includes('NOME AÇÃO') || h.includes('NOME ACAO')) return 'nomeAcao';
-                if (h.includes('CÓDIGO PLANO ORÇAMENTÁRIO') || h.includes('CODIGO PLANO ORCAMENTARIO')) return 'codigoPlanoOrcamentario';
-                if (h === 'PLANO ORÇAMENTÁRIO' || h === 'PLANO ORCAMENTARIO') return 'planoOrcamentario';
-                if (h.includes('CÓDIGO PROGRAMA GOVERNO') || h.includes('CODIGO PROGRAMA GOVERNO')) return 'codigoProgramaGoverno';
-                if (h.includes('NOME PROGRAMA GOVERNO')) return 'nomeProgramaGoverno';
-                if (h.includes('CÓDIGO CATEGORIA ECONÔMICA') || h.includes('CODIGO CATEGORIA ECONOMICA')) return 'codigoCategoriaEconomica';
-                if (h.includes('NOME CATEGORIA ECONÔMICA') || h.includes('NOME CATEGORIA ECONOMICA')) return 'nomeCategoriaEconomica';
-                if (h.includes('CÓDIGO GRUPO DE DESPESA') || h.includes('CODIGO GRUPO DE DESPESA')) return 'codigoGrupoDespesa';
-                if (h.includes('NOME GRUPO DE DESPESA')) return 'nomeGrupoDespesa';
-                if (h.includes('CÓDIGO ELEMENTO DE DESPESA') || h.includes('CODIGO ELEMENTO DE DESPESA')) return 'codigoElementoDespesa';
-                if (h.includes('NOME ELEMENTO DE DESPESA')) return 'nomeElementoDespesa';
-                if (h.includes('ORÇAMENTO INICIAL') || h.includes('ORCAMENTO INICIAL')) return 'orcamentoInicial';
-                if (h.includes('ORÇAMENTO ATUALIZADO') || h.includes('ORCAMENTO ATUALIZADO')) return 'orcamentoAtualizado';
-                if (h.includes('ORÇAMENTO EMPENHADO') || h.includes('ORCAMENTO EMPENHADO')) return 'orcamentoEmpenhado';
-                if (h.includes('ORÇAMENTO REALIZADO') || h.includes('ORCAMENTO REALIZADO')) return 'orcamentoRealizado';
-                if (h.includes('% REALIZADO DO ORÇAMENTO') || h.includes('% REALIZADO DO ORCAMENTO')) return 'percentualRealizado';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, ORCAMENTO_DESPESA_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
                 ...data,
                 ...metadata,
             });
+
             if (batch.length >= BATCH_SIZE) {
                 await persistData(batch);
                 totalProcessed += batch.length;
                 batch = [];
             }
         }
+
         if (batch.length > 0) {
             await persistData(batch);
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do Orçamento da Despesa concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream do Orçamento da Despesa');
         throw error;
     }
 }

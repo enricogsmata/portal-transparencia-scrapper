@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js'; 
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -37,6 +39,18 @@ async function persistData(data: PetiRow[]) {
     }
 }
 
+// Rules específicas para a tabela do PETI
+const PETI_HEADER_RULES = [
+    { key: 'anoMesReferencia', keywords: ['REFER', 'MES REFER'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'codigoMunicipioSiafi', keywords: ['SIAFI'], require: ['CODIGO', 'CÓDIGO'] },
+    { key: 'nomeMunicipioSiafi', keywords: ['SIAFI'], require: ['NOME'] },
+    { key: 'nisBeneficiario', keywords: ['NIS'] },
+    { key: 'nomeBeneficiario', keywords: ['NOME BENEFICI', 'NOME FAVORECIDO'] },
+    { key: 'situacao', keywords: ['SITUA'] },
+    { key: 'valorParcela', keywords: ['VALOR PARCELA', 'VALOR BENEFICIO'] }
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -44,21 +58,38 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
-                if (h.includes('REFER')) return 'anoMesReferencia';
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h.includes('SIAFI') && (h.includes('CÓDIGO') || h.includes('CODIGO'))) return 'codigoMunicipioSiafi';
-                if (h.includes('SIAFI') && h.includes('NOME')) return 'nomeMunicipioSiafi';
-                if (h.includes('NIS')) return 'nisBeneficiario';
-                if (h.includes('NOME BENEFICI')) return 'nomeBeneficiario';
-                if (h.includes('SITUA')) return 'situacao';
-                if (h.includes('VALOR PARCELA')) return 'valorParcela';
-                return header.trim();
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
+
+                    const cleanHeader = normalize(header);
+
+                    for (const rule of PETI_HEADER_RULES) {
+                        // Verifica correspondência exata
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        // Verifica keywords principais
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            // Se a regra exigir termos adicionais (ex: SIAFI + NOME)
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

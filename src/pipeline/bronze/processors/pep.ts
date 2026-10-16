@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Pep } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -39,30 +40,75 @@ async function persistData(data: PepRow[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const PEP_HEADER_RULES: HeaderRule[] = [
+    { key: 'cpf', matchExact: ['CPF'] },
+    { key: 'nomePep', matchExact: ['NOME PEP', 'NOMEPEP'] },
+
+    // Função
+    { key: 'siglaFuncao', matchExact: ['SIGLA FUNCAO', 'SIGLAFUNCAO'] },
+    { key: 'descricaoFuncao', matchExact: ['DESCRICAO FUNCAO', 'DESCRICAOFUNCAO'] },
+    { key: 'nivelFuncao', matchExact: ['NIVEL FUNCAO', 'NIVELFUNCAO'] },
+
+    // Órgão e Datas
+    { key: 'nomeOrgao', matchExact: ['NOME ORGAO', 'NOMEORGAO'] },
+    { key: 'dataInicioExercicio', matchExact: ['DATA INICIO EXERCICIO', 'DATAINICIOEXERCICIO'] },
+    { key: 'dataFimExercicio', matchExact: ['DATA FIM EXERCICIO', 'DATAFIMEXERCICIO'] },
+    { key: 'dataFimCarencia', matchExact: ['DATA FIM CARENCIA', 'DATAFIMCARENCIA'] },
+];
+
+// Helper genérico para resolução das chaves
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    // Remove os espaços do cabeçalho limpo para ignorar o agrupamento feito pela remoção do _
+    const groupedHeader = cleanHeader.replace(/\s+/g, '');
+
+    // 1º Passo: Busca por correspondência exata para evitar colisão
+    for (const rule of rules) {
+        if (rule.matchExact) {
+            const match = rule.matchExact.some(exact => exact.replace(/\s+/g, '') === groupedHeader);
+            if (match) return rule.key;
+        }
+    }
+
+    // 2º Passo: Busca por palavras-chave (Fallback seguro)
+    for (const rule of rules) {
+        if (rule.keywords) {
+            const hasKeyword = rule.keywords.some(kw => groupedHeader.includes(kw.replace(/\s+/g, '')));
+            if (hasKeyword) {
+                if (rule.require) {
+                    const hasRequired = rule.require.some(req => groupedHeader.includes(req.replace(/\s+/g, '')));
+                    if (hasRequired) return rule.key;
+                } else {
+                    return rule.key;
+                }
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: PepRow[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-
-                if (h === 'CPF') return 'cpf';
-                if (h.includes('NOME_PEP') || h === 'NOME PEP' || h === 'NOME_PEP') return 'nomePep';
-                if (h.includes('SIGLA_FUNÇÃO') || h.includes('SIGLA FUNCAO') || h.includes('SIGLA_FUNCAO') || h.includes('SIGLA FUNÇÃO')) return 'siglaFuncao';
-                if (h.includes('DESCRIÇÃO_FUNÇÃO') || h.includes('DESCRICAO FUNCAO') || h.includes('DESCRICAO_FUNCAO') || h.includes('DESCRIÇÃO FUNÇÃO')) return 'descricaoFuncao';
-                if (h.includes('NÍVEL_FUNÇÃO') || h.includes('NIVEL FUNCAO') || h.includes('NIVEL_FUNCAO') || h.includes('NÍVEL FUNÇÃO')) return 'nivelFuncao';
-                if (h.includes('NOME_ÓRGÃO') || h.includes('NOME ORGAO') || h.includes('NOME_ORGAO') || h.includes('NOME ÓRGÃO')) return 'nomeOrgao';
-                if (h.includes('DATA_INÍCIO_EXERCÍCIO') || h.includes('DATA INICIO EXERCICIO') || h.includes('DATA_INICIO_EXERCICIO') || h.includes('DATA INÍCIO EXERCÍCIO')) return 'dataInicioExercicio';
-                if (h.includes('DATA_FIM_EXERCÍCIO') || h.includes('DATA FIM EXERCICIO') || h.includes('DATA_FIM_EXERCICIO') || h.includes('DATA FIM EXERCÍCIO')) return 'dataFimExercicio';
-                if (h.includes('DATA_FIM_CARÊNCIA') || h.includes('DATA FIM CARENCIA') || h.includes('DATA_FIM_CARENCIA') || h.includes('DATA FIM CARÊNCIA')) return 'dataFimCarencia';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, PEP_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -82,10 +128,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do CSV concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de PEP concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream do CSV');
+        log.error({ data: error }, 'Erro ao processar stream de PEP');
         throw error;
     }
 }

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -10,7 +11,7 @@ import {
     EmendasParlamentaresConvenios,
     EmendasParlamentaresFavorecido
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -120,47 +121,116 @@ async function persistFavorecidos(data: (typeof EmendasParlamentaresFavorecido.$
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const EMENDAS_HEADER_RULES: HeaderRule[] = [
+    { key: 'codigoAutorEmenda', keywords: ['AUTOR DA EMENDA'], require: ['CODIGO'] },
+    { key: 'codigoEmenda', keywords: ['EMENDA'], require: ['CODIGO'] },
+    { key: 'anoEmenda', keywords: ['EMENDA'], require: ['ANO'] },
+    { key: 'tipoEmenda', keywords: ['EMENDA'], require: ['TIPO'] },
+    { key: 'nomeAutorEmenda', keywords: ['AUTOR'], require: ['NOME'] },
+    { key: 'numeroEmenda', keywords: ['EMENDA'], require: ['NUMERO'] },
+    { key: 'localidadeGasto', keywords: ['LOCALIDADE DE APLICACAO', 'LOCALIDADE APLICACAO'] },
+    { key: 'codigoMunicipioIbge', keywords: ['MUNICIPIO IBGE'], require: ['CODIGO'] },
+    { key: 'municipio', matchExact: ['MUNICIPIO'] },
+    { key: 'codigoUfIbge', keywords: ['UF IBGE'], require: ['CODIGO'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'regiao', matchExact: ['REGIAO'] },
+
+    // Estrutura Orçamentária (SUBFUNÇÃO antes de FUNÇÃO)
+    { key: 'codigoSubfuncao', keywords: ['SUBFUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeSubfuncao', keywords: ['SUBFUNCAO'], require: ['NOME'] },
+    { key: 'codigoFuncao', keywords: ['FUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeFuncao', keywords: ['FUNCAO'], require: ['NOME'] },
+    { key: 'codigoPrograma', keywords: ['PROGRAMA'], require: ['CODIGO'] },
+    { key: 'nomePrograma', keywords: ['PROGRAMA'], require: ['NOME'] },
+    { key: 'codigoAcao', keywords: ['ACAO'], require: ['CODIGO'] },
+    { key: 'nomeAcao', keywords: ['ACAO'], require: ['NOME'] },
+    { key: 'codigoPlanoOrcamentario', keywords: ['PLANO ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'nomePlanoOrcamentario', keywords: ['PLANO ORCAMENTARIO'], require: ['NOME'] },
+
+    // Valores e Restos a Pagar
+    { key: 'valorEmpenhado', keywords: ['VALOR EMPENHADO'] },
+    { key: 'valorLiquidado', keywords: ['VALOR LIQUIDADO'] },
+    { key: 'valorPago', keywords: ['VALOR PAGO'] },
+    { key: 'valorRestosAPagarInscritos', keywords: ['RESTOS A PAGAR INSCRITOS'] },
+    { key: 'valorRestosAPagarCancelados', keywords: ['RESTOS A PAGAR CANCELADO', 'RESTOS A PAGAR CANCELADOS'] },
+    { key: 'valorRestosAPagarPagos', keywords: ['RESTOS A PAGAR PAGOS'] },
+];
+
+const EMENDAS_CONVENIOS_HEADER_RULES: HeaderRule[] = [
+    { key: 'codigoEmenda', keywords: ['EMENDA'], require: ['CODIGO'] },
+    { key: 'codigoSubfuncao', keywords: ['SUBFUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeSubfuncao', keywords: ['SUBFUNCAO'], require: ['NOME'] },
+    { key: 'codigoFuncao', keywords: ['FUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeFuncao', keywords: ['FUNCAO'], require: ['NOME'] },
+    { key: 'localidadeGasto', keywords: ['LOCALIDADE DO GASTO', 'LOCALIDADE GASTO'] },
+    { key: 'tipoEmenda', keywords: ['EMENDA'], require: ['TIPO'] },
+    { key: 'dataPublicacaoConvenio', keywords: ['PUBLICACAO CONVENIO'] },
+    { key: 'convenente', matchExact: ['CONVENENTE', 'NOME CONVENENTE'] },
+    { key: 'objetoConvenio', keywords: ['OBJETO CONVENIO', 'OBJETO DO CONVENIO'] },
+    { key: 'numeroConvenio', keywords: ['CONVENIO'], require: ['NUMERO'] },
+    { key: 'valorConvenio', keywords: ['CONVENIO'], require: ['VALOR'] },
+];
+
+const EMENDAS_FAVORECIDOS_HEADER_RULES: HeaderRule[] = [
+    { key: 'codigoAutorEmenda', keywords: ['AUTOR DA EMENDA'], require: ['CODIGO'] },
+    { key: 'codigoEmenda', keywords: ['EMENDA'], require: ['CODIGO'] },
+    { key: 'nomeAutorEmenda', keywords: ['AUTOR'], require: ['NOME'] },
+    { key: 'numeroEmenda', keywords: ['EMENDA'], require: ['NUMERO'] },
+    { key: 'tipoEmenda', keywords: ['EMENDA'], require: ['TIPO'] },
+    { key: 'anoMes', keywords: ['ANO MES', 'ANO / MES', 'ANO/MES', 'ANOMES'] },
+    { key: 'codigoFavorecido', keywords: ['FAVORECIDO'], require: ['CODIGO'] },
+    { key: 'favorecido', matchExact: ['FAVORECIDO', 'NOME FAVORECIDO'] },
+    { key: 'naturezaJuridica', keywords: ['NATUREZA JURIDICA'] },
+    { key: 'tipoFavorecido', keywords: ['FAVORECIDO'], require: ['TIPO'] },
+    { key: 'ufFavorecido', keywords: ['FAVORECIDO'], require: ['UF'] },
+    { key: 'municipioFavorecido', keywords: ['FAVORECIDO'], require: ['MUNICIPIO'] },
+    { key: 'valorRecebido', keywords: ['VALOR RECEBIDO'] },
+];
+
+// Helper genérico reutilizável
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processEmendasStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processEmendasStream');
     let batch: (typeof EmendasParlamentares.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('CÓDIGO DA EMENDA') || h.includes('CODIGO DA EMENDA')) return 'codigoEmenda';
-                if (h.includes('ANO DA EMENDA')) return 'anoEmenda';
-                if (h.includes('TIPO DA EMENDA')) return 'tipoEmenda';
-                if (h.includes('CÓDIGO DO AUTOR') || h.includes('CODIGO DO AUTOR')) return 'codigoAutorEmenda';
-                if (h.includes('NOME DO AUTOR')) return 'nomeAutorEmenda';
-                if (h.includes('NÚMERO DA EMENDA') || h.includes('NUMERO DA EMENDA')) return 'numeroEmenda';
-                if (h.includes('LOCALIDADE DO GASTO')) return 'localidadeGasto';
-                if (h.includes('CÓDIGO MUNICÍPIO IBGE') || h.includes('CODIGO MUNICIPIO IBGE')) return 'codigoMunicipioIbge';
-                if (h === 'MUNICÍPIO' || h === 'MUNICIPIO') return 'municipio';
-                if (h.includes('CÓDIGO UF IBGE') || h.includes('CODIGO UF IBGE')) return 'codigoUfIbge';
-                if (h === 'UF') return 'uf';
-                if (h === 'REGIÃO' || h === 'REGIAO') return 'regiao';
-                if (h.includes('CÓDIGO FUNÇÃO') || h.includes('CODIGO FUNCAO')) return 'codigoFuncao';
-                if (h.includes('NOME FUNÇÃO') || h.includes('NOME FUNCAO')) return 'nomeFuncao';
-                if (h.includes('CÓDIGO SUBFUNÇÃO') || h.includes('CODIGO SUBFUNCAO')) return 'codigoSubfuncao';
-                if (h.includes('NOME SUBFUNÇÃO') || h.includes('NOME SUBFUNCAO')) return 'nomeSubfuncao';
-                if (h.includes('CÓDIGO PROGRAMA') || h.includes('CODIGO PROGRAMA')) return 'codigoPrograma';
-                if (h.includes('NOME PROGRAMA')) return 'nomePrograma';
-                if (h.includes('CÓDIGO AÇÃO') || h.includes('CODIGO ACAO')) return 'codigoAcao';
-                if (h.includes('NOME AÇÃO') || h.includes('NOME ACAO')) return 'nomeAcao';
-                if (h.includes('CÓDIGO PLANO ORÇAMENTÁRIO') || h.includes('CODIGO PLANO ORCAMENTARIO')) return 'codigoPlanoOrcamentario';
-                if (h.includes('NOME PLANO ORÇAMENTÁRIO') || h.includes('NOME PLANO ORCAMENTARIO')) return 'nomePlanoOrcamentario';
-                if (h.includes('VALOR EMPENHADO')) return 'valorEmpenhado';
-                if (h.includes('VALOR LIQUIDADO')) return 'valorLiquidado';
-                if (h.includes('VALOR PAGO')) return 'valorPago';
-                if (h.includes('RESTOS A PAGAR INSCRITOS')) return 'valorRestosAPagarInscritos';
-                if (h.includes('RESTOS A PAGAR CANCELADOS')) return 'valorRestosAPagarCancelados';
-                if (h.includes('RESTOS A PAGAR PAGOS')) return 'valorRestosAPagarPagos';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, EMENDAS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -178,10 +248,10 @@ async function processEmendasStream(stream: NodeJS.ReadableStream, metadata: Ref
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Emendas concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Emendas');
         throw error;
     }
 }
@@ -192,25 +262,12 @@ async function processConveniosStream(stream: NodeJS.ReadableStream, metadata: R
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('CÓDIGO DA EMENDA') || h.includes('CODIGO DA EMENDA')) return 'codigoEmenda';
-                if (h.includes('CÓDIGO FUNÇÃO') || h.includes('CODIGO FUNCAO')) return 'codigoFuncao';
-                if (h.includes('NOME FUNÇÃO') || h.includes('NOME FUNCAO')) return 'nomeFuncao';
-                if (h.includes('CÓDIGO SUBFUNÇÃO') || h.includes('CODIGO SUBFUNCAO')) return 'codigoSubfuncao';
-                if (h.includes('NOME SUBFUNÇÃO') || h.includes('NOME SUBFUNCAO')) return 'nomeSubfuncao';
-                if (h.includes('LOCALIDADE DO GASTO')) return 'localidadeGasto';
-                if (h.includes('TIPO DE EMENDA')) return 'tipoEmenda';
-                if (h.includes('DATA PUBLICAÇÃO CONVÊNIO') || h.includes('DATA PUBLICACAO CONVENIO')) return 'dataPublicacaoConvenio';
-                if (h === 'CONVENENTE') return 'convenente';
-                if (h.includes('OBJETO CONVÊNIO') || h.includes('OBJETO CONVENIO')) return 'objetoConvenio';
-                if (h.includes('NÚMERO CONVÊNIO') || h.includes('NUMERO CONVENIO')) return 'numeroConvenio';
-                if (h.includes('VALOR CONVÊNIO') || h.includes('VALOR CONVENIO')) return 'valorConvenio';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, EMENDAS_CONVENIOS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -228,10 +285,10 @@ async function processConveniosStream(stream: NodeJS.ReadableStream, metadata: R
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Convênios de Emendas concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Convênios de Emendas');
         throw error;
     }
 }
@@ -242,26 +299,12 @@ async function processFavorecidosStream(stream: NodeJS.ReadableStream, metadata:
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('CÓDIGO DA EMENDA') || h.includes('CODIGO DA EMENDA')) return 'codigoEmenda';
-                if (h.includes('CÓDIGO DO AUTOR') || h.includes('CODIGO DO AUTOR')) return 'codigoAutorEmenda';
-                if (h.includes('NOME DO AUTOR')) return 'nomeAutorEmenda';
-                if (h.includes('NÚMERO DA EMENDA') || h.includes('NUMERO DA EMENDA')) return 'numeroEmenda';
-                if (h.includes('TIPO DE EMENDA')) return 'tipoEmenda';
-                if (h.includes('ANO/MÊS') || h.includes('ANO/MES') || h.includes('ANO / MÊS')) return 'anoMes';
-                if (h.includes('CÓDIGO DO FAVORECIDO') || h.includes('CODIGO DO FAVORECIDO')) return 'codigoFavorecido';
-                if (h === 'FAVORECIDO') return 'favorecido';
-                if (h.includes('NATUREZA JURÍDICA') || h.includes('NATUREZA JURIDICA')) return 'naturezaJuridica';
-                if (h.includes('TIPO FAVORECIDO')) return 'tipoFavorecido';
-                if (h.includes('UF FAVORECIDO')) return 'ufFavorecido';
-                if (h.includes('MUNICÍPIO FAVORECIDO') || h.includes('MUNICIPIO FAVORECIDO')) return 'municipioFavorecido';
-                if (h.includes('VALOR RECEBIDO')) return 'valorRecebido';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, EMENDAS_FAVORECIDOS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -279,10 +322,10 @@ async function processFavorecidosStream(stream: NodeJS.ReadableStream, metadata:
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Favorecidos de Emendas concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Favorecidos de Emendas');
         throw error;
     }
 }
@@ -335,6 +378,11 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
 
+                            const streamEndPromise = new Promise<void>((resolveStream, rejectStream) => {
+                                readStream.on('end', resolveStream);
+                                readStream.on('error', rejectStream);
+                            });
+
                             if (upperName.includes('CONVENIOS')) {
                                 rowsCount = await processConveniosStream(readStream, metadata);
                             } else if (upperName.includes('FAVORECIDO')) {
@@ -345,6 +393,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');
                                 readStream.resume();
                             }
+
+                            await streamEndPromise;
 
                             fileTotal += rowsCount;
                         } catch (streamErr) {

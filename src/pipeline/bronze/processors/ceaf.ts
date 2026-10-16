@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Ceaf } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -55,46 +56,86 @@ async function persistData(data: CeafRow[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const CEAF_HEADER_RULES: HeaderRule[] = [
+    { key: 'cadastro', matchExact: ['CADASTRO'] },
+    { key: 'codigoSancao', keywords: ['SANCAO'], require: ['CODIGO'] },
+    { key: 'tipoPessoa', keywords: ['TIPO DE PESSOA', 'TIPO PESSOA'] },
+    { key: 'cpfCnpjSancionado', keywords: ['SANCIONADO'], require: ['CPF', 'CNPJ'] },
+    { key: 'nomeSancionado', keywords: ['NOME DO SANCIONADO', 'NOME SANCIONADO'] },
+    { key: 'categoriaSancao', keywords: ['CATEGORIA DA SANCAO', 'CATEGORIA SANCAO'] },
+    { key: 'numeroDocumento', keywords: ['DOCUMENTO'], require: ['NUMERO'] },
+    { key: 'numeroProcesso', keywords: ['PROCESSO', 'NUMERO DO PROCESSO'] },
+
+    // Datas
+    { key: 'dataInicioSancao', keywords: ['DATA INICIO SANCAO'], require: ['DATA', 'INICIO'] },
+    { key: 'dataFinalSancao', keywords: ['DATA FINAL SANCAO'], require: ['DATA', 'FINAL'] },
+    { key: 'dataPublicacao', keywords: ['PUBLICACAO'], require: ['DATA'] },
+    { key: 'publicacao', matchExact: ['PUBLICACAO'] },
+    { key: 'detalhamentoMeioPublicacao', keywords: ['DETALHAMENTO'] },
+    { key: 'dataTransitoJulgado', keywords: ['TRANSITO EM JULGADO', 'TRANSITO JULGADO'] },
+
+    { key: 'abrangenciaSancao', keywords: ['ABRANGENCIA', 'ABRAGENCIA'] },
+
+    // Cargo e Lotação do Servidor Expulso
+    { key: 'cargoEfetivo', keywords: ['CARGO EFETIVO'] },
+    { key: 'funcaoCargoConfianca', keywords: ['FUNCAO OU CARGO DE CONFIANCA', 'CARGO DE CONFIANCA', 'FUNCAO CARGO CONFIANCA'] },
+    { key: 'orgaoLotacao', keywords: ['ORGAO DE LOTACAO', 'ORGAO LOTACAO', 'LOTACAO'] },
+
+    // Órgão Sancionador
+    { key: 'ufOrgaoSancionador', keywords: ['ORGAO SANCIONADOR'], require: ['UF'] },
+    { key: 'esferaOrgaoSancionador', keywords: ['ORGAO SANCIONADOR'], require: ['ESFERA'] },
+    { key: 'orgaoSancionador', keywords: ['ORGAO SANCIONADOR'] },
+
+    { key: 'fundamentacaoLegal', keywords: ['FUNDAMENTACAO LEGAL'] },
+    { key: 'dataOrigemInformacao', keywords: ['ORIGEM INFORMACAO', 'ORIGEM DA INFORMACAO'], require: ['DATA'] },
+    { key: 'origemInformacoes', keywords: ['ORIGEM INFORMACAO', 'ORIGEM INFORMACOES'] },
+    { key: 'observacoes', keywords: ['OBSERVACOES', 'OBSERVACAO'] },
+];
+
+// Helper genérico para resolução das chaves
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     let batch: CeafRow[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-
-                if (h === 'CADASTRO') return 'cadastro';
-                if (h.includes('CÓDIGO DA SANÇÃO') || h.includes('CODIGO DA SANCAO')) return 'codigoSancao';
-                if (h.includes('TIPO DE PESSOA')) return 'tipoPessoa';
-                if (h.includes('CPF OU CNPJ DO SANCIONADO') || h.includes('CPF/CNPJ DO SANCIONADO')) return 'cpfCnpjSancionado';
-                if (h.includes('NOME DO SANCIONADO')) return 'nomeSancionado';
-                if (h.includes('CATEGORIA DA SANÇÃO') || h.includes('CATEGORIA DA SANCAO')) return 'categoriaSancao';
-                if (h.includes('NÚMERO DO DOCUMENTO') || h.includes('NUMERO DO DOCUMENTO')) return 'numeroDocumento';
-                if (h.includes('NÚMERO DO PROCESSO') || h.includes('NUMERO DO PROCESSO') || h.includes('NÚMERO PROCESSO')) return 'numeroProcesso';
-                if (h.includes('DATA INÍCIO SANÇÃO') || h.includes('DATA INICIO SANCAO')) return 'dataInicioSancao';
-                if (h.includes('DATA FINAL SANÇÃO') || h.includes('DATA FINAL SANCAO')) return 'dataFinalSancao';
-                if (h.includes('DATA PUBLICAÇÃO') || h.includes('DATA PUBLICACAO')) return 'dataPublicacao';
-                if (h === 'PUBLICAÇÃO' || h === 'PUBLICACAO') return 'publicacao';
-                if (h.includes('DETALHAMENTO DO MEIO DE PUBLICAÇÃO') || h.includes('DETALHAMENTO DO MEIO DE PUBLICACAO') || h.includes('DETALHAMENTO')) return 'detalhamentoMeioPublicacao';
-                if (h.includes('DATA DO TRÂNSITO EM JULGADO') || h.includes('DATA DO TRANSITO EM JULGADO')) return 'dataTransitoJulgado';
-                if (h.includes('ABRAGÊNCIA DA SANÇÃO') || h.includes('ABRANGENCIA DA SANCAO') || h.includes('ABRANGÊNCIA DA SANÇÃO')) return 'abrangenciaSancao';
-                if (h.includes('CARGO EFETIVO')) return 'cargoEfetivo';
-                if (h.includes('FUNÇÃO OU CARGO DE CONFIANÇA') || h.includes('FUNCAO OU CARGO DE CONFIANCA')) return 'funcaoCargoConfianca';
-                if (h.includes('ÓRGÃO DE LOTAÇÃO') || h.includes('ORGAO DE LOTACAO')) return 'orgaoLotacao';
-                if (h === 'ÓRGÃO SANCIONADOR' || h === 'ORGAO SANCIONADOR') return 'orgaoSancionador';
-                if (h.includes('UF ÓRGÃO SANCIONADOR') || h.includes('UF ORGAO SANCIONADOR')) return 'ufOrgaoSancionador';
-                if (h.includes('ESFERA ÓRGÃO SANCIONADOR') || h.includes('ESFERA ORGAO SANCIONADOR')) return 'esferaOrgaoSancionador';
-                if (h.includes('FUNDAMENTAÇÃO LEGAL') || h.includes('FUNDAMENTACAO LEGAL')) return 'fundamentacaoLegal';
-                if (h.includes('DATA ORIGEM INFORMAÇÃO') || h.includes('DATA ORIGEM INFORMACAO')) return 'dataOrigemInformacao';
-                if (h.includes('ORIGEM INFORMAÇÕES') || h.includes('ORIGEM INFORMACOES') || h.includes('ORIGEM INFORMAÇÃO')) return 'origemInformacoes';
-                if (h.includes('OBSERVAÇÕES') || h.includes('OBSERVACOES')) return 'observacoes';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, CEAF_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -114,10 +155,10 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do CSV concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do CEAF concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream do CSV');
+        log.error({ data: error }, 'Erro ao processar stream do CEAF');
         throw error;
     }
 }
@@ -170,7 +211,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
 
-                            if (upperName.includes('CEAF')) {
+                            if (upperName.includes('CEAF') || upperName.includes('EXPULSOES') || upperName.includes('EXPULSÕES')) {
                                 rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');

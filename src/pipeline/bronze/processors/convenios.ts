@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import {
@@ -80,46 +82,89 @@ async function persistOrdensBancarias(data: (typeof ConveniosOrdensBancarias.$in
     }
 }
 
+const CONVENIOS_HEADER_RULES = [
+    { key: 'numeroConvenio', keywords: ['NUMERO CONVENIO', 'NUMERO DO CONVENIO'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'codigoSiafiMunicipio', keywords: ['SIAFI MUNICIPIO', 'SIAFI DO MUNICIPIO'] },
+    { key: 'nomeMunicipio', keywords: ['NOME MUNICIPIO', 'NOME DO MUNICIPIO'] },
+    { key: 'situacaoConvenio', keywords: ['SITUACAO CONVENIO', 'SITUACAO DO CONVENIO', 'SITUACAO'] },
+    { key: 'numeroOriginal', keywords: ['NUMERO ORIGINAL'] },
+    { key: 'numeroProcessoConvenio', keywords: ['NUMERO PROCESSO', 'NUMERO DO PROCESSO'] },
+    { key: 'objetoConvenio', keywords: ['OBJETO'] },
+
+    // Órgãos e UG Concedente
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+    { key: 'codigoOrgaoConcedente', keywords: ['ORGAO CONCEDENTE'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoConcedente', keywords: ['ORGAO CONCEDENTE'], require: ['NOME'] },
+    { key: 'codigoUgConcedente', keywords: ['UG CONCEDENTE'], require: ['CODIGO'] },
+    { key: 'nomeUgConcedente', keywords: ['UG CONCEDENTE'], require: ['NOME'] },
+
+    // Convenente
+    { key: 'codigoConvenente', keywords: ['CONVENENTE'], require: ['CODIGO'] },
+    { key: 'tipoConvenente', keywords: ['CONVENENTE'], require: ['TIPO'] },
+    { key: 'tipoEnteConvenente', keywords: ['TIPO CONVENENTE'], require: ['TIPO'] },
+    { key: 'nomeConvenente', keywords: ['CONVENENTE'], require: ['NOME'] },
+
+    // Instrumento e Valores
+    { key: 'tipoInstrumento', keywords: ['TIPO INSTRUMENTO', 'TIPO DE INSTRUMENTO'] },
+    { key: 'valorConvenio', keywords: ['VALOR CONVENIO', 'VALOR DO CONVENIO'] },
+    { key: 'dataUltimaLiberacao', keywords: ['ULTIMA LIBERACAO'], require: ['DATA'] },
+    { key: 'valorUltimaLiberacao', keywords: ['ULTIMA LIBERACAO'], require: ['VALOR'] },
+    { key: 'valorLiberado', keywords: ['VALOR LIBERADO'] },
+    { key: 'valorContrapartida', keywords: ['CONTRAPARTIDA'] },
+
+    // Datas
+    { key: 'dataPublicacao', keywords: ['DATA PUBLICACAO', 'DATA DE PUBLICACAO'] },
+    { key: 'dataInicioVigencia', keywords: ['INICIO VIGENCIA', 'DATA INICIO VIGENCIA'] },
+    { key: 'dataFimVigencia', keywords: ['FIM VIGENCIA', 'FINAL VIGENCIA'] },
+];
+
+const ORDENS_BANCARIAS_HEADER_RULES = [
+    { key: 'numeroConvenio', keywords: ['NUMERO CONVENIO', 'NUMERO DO CONVENIO'] },
+    { key: 'numeroOriginal', keywords: ['NUMERO ORIGINAL'] },
+    { key: 'dataEmissaoOb', keywords: ['DATA EMISSAO OB', 'DATA DE EMISSAO OB'] },
+    { key: 'numeroOrdemBancaria', keywords: ['ORDEM BANCARIA', 'NUMERO DA ORDEM BANCARIA'] },
+    { key: 'valorLiberado', keywords: ['VALOR LIBERADO'] },
+];
+
+// Helper reutilizável para aplicar as regras
+function resolveHeaderKey(header: string, rules: typeof CONVENIOS_HEADER_RULES): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processConveniosStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processConveniosStream');
     let batch: (typeof Convenios.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO CONVÊNIO') || h.includes('NUMERO CONVENIO')) return 'numeroConvenio';
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h.includes('SIAFI MUNICÍPIO') || h.includes('SIAFI MUNICIPIO')) return 'codigoSiafiMunicipio';
-                if (h.includes('NOME MUNICÍPIO') || h.includes('NOME MUNICIPIO')) return 'nomeMunicipio';
-                if (h.includes('SITUAÇÃO') || h.includes('SITUACAO')) return 'situacaoConvenio';
-                if (h.includes('NÚMERO ORIGINAL') || h.includes('NUMERO ORIGINAL')) return 'numeroOriginal';
-                if (h.includes('NÚMERO PROCESSO') || h.includes('NUMERO PROCESSO')) return 'numeroProcessoConvenio';
-                if (h.includes('OBJETO')) return 'objetoConvenio';
-                if (h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO CONCEDENTE') || h.includes('CODIGO ORGAO CONCEDENTE')) return 'codigoOrgaoConcedente';
-                if (h.includes('NOME ÓRGÃO CONCEDENTE') || h.includes('NOME ORGAO CONCEDENTE')) return 'nomeOrgaoConcedente';
-                if (h.includes('CÓDIGO UG CONCEDENTE') || h.includes('CODIGO UG CONCEDENTE')) return 'codigoUgConcedente';
-                if (h.includes('NOME UG CONCEDENTE')) return 'nomeUgConcedente';
-                if (h.includes('CÓDIGO CONVENENTE') || h.includes('CODIGO CONVENENTE')) return 'codigoConvenente';
-                if (h.includes('TIPO CONVENENTE')) return 'tipoConvenente';
-                if (h.includes('NOME CONVENENTE')) return 'nomeConvenente';
-                if (h.includes('TIPO ENTE CONVENENTE')) return 'tipoEnteConvenente';
-                if (h.includes('TIPO INSTRUMENTO')) return 'tipoInstrumento';
-                if (h.includes('VALOR CONVÊNIO') || h.includes('VALOR CONVENIO')) return 'valorConvenio';
-                if (h.includes('VALOR LIBERADO')) return 'valorLiberado';
-                if (h.includes('DATA PUBLICAÇÃO') || h.includes('DATA PUBLICACAO')) return 'dataPublicacao';
-                if (h.includes('INÍCIO VIGÊNCIA') || h.includes('INICIO VIGENCIA')) return 'dataInicioVigencia';
-                if (h.includes('FIM VIGÊNCIA') || h.includes('FIM VIGENCIA')) return 'dataFimVigencia';
-                if (h.includes('CONTRAPARTIDA')) return 'valorContrapartida';
-                if (h.includes('DATA ÚLTIMA LIBERAÇÃO') || h.includes('DATA ULTIMA LIBERACAO')) return 'dataUltimaLiberacao';
-                if (h.includes('VALOR ÚLTIMA LIBERAÇÃO') || h.includes('VALOR ULTIMA LIBERACAO')) return 'valorUltimaLiberacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, CONVENIOS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -151,18 +196,12 @@ async function processOrdensBancariasStream(stream: NodeJS.ReadableStream, metad
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO CONVÊNIO') || h.includes('NUMERO CONVENIO')) return 'numeroConvenio';
-                if (h.includes('NÚMERO ORIGINAL') || h.includes('NUMERO ORIGINAL')) return 'numeroOriginal';
-                if (h.includes('DATA EMISSÃO OB') || h.includes('DATA EMISSAO OB')) return 'dataEmissaoOb';
-                if (h.includes('NÚMERO DA ORDEM BANCÁRIA') || h.includes('NUMERO DA ORDEM BANCARIA') || h.includes('NÚMERO ORDEM BANCÁRIA')) return 'numeroOrdemBancaria';
-                if (h.includes('VALOR LIBERADO')) return 'valorLiberado';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, ORDENS_BANCARIAS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -236,7 +275,12 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                             const upperName = entry.fileName.toUpperCase();
                             let rowsCount = 0;
 
-                            if (upperName.includes('ORDEM_BANCARIA') || upperName.includes('ORDENS_BANCARIAS') || upperName.includes('ORDEMBANCARIA') || upperName.includes('OB')) {
+                            const streamEndPromise = new Promise<void>((resolveStream, rejectStream) => {
+                                readStream.on('end', resolveStream);
+                                readStream.on('error', rejectStream);
+                            });
+
+                            if (upperName.includes('ORDEM_BANCARIA') || upperName.includes('ORDENS_BANCARIAS') || upperName.includes('ORDEMBANCARIA') || upperName.includes('ORDENSBANCARIAS') || upperName.includes('OB.CSV')) {
                                 rowsCount = await processOrdensBancariasStream(readStream, metadata);
                             } else if (upperName.includes('CONVENIO')) {
                                 rowsCount = await processConveniosStream(readStream, metadata);
@@ -244,6 +288,8 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV não processado (padrão de nome desconhecido)');
                                 readStream.resume();
                             }
+
+                            await streamEndPromise;
 
                             fileTotal += rowsCount;
                         } catch (streamErr) {

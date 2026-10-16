@@ -57,7 +57,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
                 if (h.includes('CPF FAVORECIDO')) return 'cpfFavorecido';
                 if (h.includes('NIS FAVORECIDO')) return 'nisFavorecido';
                 if (h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
-                if (h.includes('DISPONIBIL')) return 'dataDisponibilizacao';
+                if (h.includes('DATA')) return 'dataDisponibilizacao';
                 if (h.includes('VALOR PARCELA')) return 'valorParcela';
                 return header.trim();
             },

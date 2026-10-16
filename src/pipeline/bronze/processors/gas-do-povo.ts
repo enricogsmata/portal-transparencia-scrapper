@@ -7,6 +7,7 @@ import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { GasDoPovo } from '../../../database/bronze_schema.js';
 import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import iconv from 'iconv-lite';
 
 const logger = new_logger(import.meta.url);
 
@@ -49,27 +50,58 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
-                if (h.includes('MÊS REFER') || h.includes('MES REFER')) return 'mesReferencia';
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h.includes('CÓDIGO DO MUNIC') || h.includes('CODIGO MUNIC')) return 'codigoMunicipio';
-                if (h.includes('NOME DO MUNIC') || h.includes('NOME MUNIC')) return 'nomeMunicipio';
-                if (h.includes('CPF DO BENEFICI') || h.includes('CPF BENEFICI')) return 'cpfBeneficiario';
-                if (h.includes('NOME DO BENEFICI') || h.includes('NOME BENEFICI')) return 'nomeBeneficiario';
-                if (h.includes('CNPJ DO ESTABELECIMENTO') || h.includes('CNPJ ESTABELECIMENTO')) return 'cnpjEstabelecimento';
-                if (h.includes('NOME DO ESTABELECIMENTO') || h.includes('NOME ESTABELECIMENTO')) return 'nomeEstabelecimento';
-                if (h.includes('QUANTIDADE DE PESSOAS')) return 'quantidadePessoasFamilia';
-                if (h.includes('VALIDADE DO VALE')) return 'validadeVale';
-                if (h.includes('DATA DE INÍCIO') || h.includes('DATA DE INICIO')) return 'dataInicioVigenciaVale';
-                if (h.includes('DATA DE FIM') || h.includes('DATA FINAL')) return 'dataFimVigenciaVale';
-                if (h.includes('DATA DE RETIRADA')) return 'dataRetiradaVale';
-                if (h.includes('VALOR DO BENEF') || h.includes('VALOR BENEF')) return 'valorBeneficio';
-                return header.trim();
-            },
-        }));
+        // 1. Função de normalização robusta (remove acentos, pontuações e múltiplos espaços)
+        const normalize = (str: string) =>
+            str ? str
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+                .replace(/[^A-Z0-9\s]/gi, "")   // Remove parênteses, hífens, pontuações
+                .replace(/\s+/g, " ")           // Transforma múltiplos espaços em 1 único espaço
+                .trim()
+                .toUpperCase()
+                : "";
+
+        // 2. Tabela de Mapeamento (Keywords em caixa alta e sem acento)
+        const HEADER_RULES = [
+            { key: 'mesReferencia', keywords: ['MES REFER'] },
+            { key: 'uf', matchExact: ['UF'] },
+            { key: 'codigoMunicipio', keywords: ['SIAFI', 'CODIGO MUNIC'] },
+            { key: 'nomeMunicipio', keywords: ['NOME DO MUNIC', 'NOME MUNIC'] },
+            { key: 'cpfBeneficiario', keywords: ['CPF DO BENEFICI', 'CPF BENEFICI'] },
+            { key: 'nomeBeneficiario', keywords: ['NOME FAVORECIDO', 'NOME BENEFICI'] },
+            { key: 'cnpjEstabelecimento', keywords: ['CNPJ ESTABELECIMENTO'] },
+            { key: 'nomeEstabelecimento', keywords: ['NOME ESTABELECIMENTO', 'ESTABELECIMENTO'] },
+            { key: 'quantidadePessoasFamilia', keywords: ['QUANTIDADE DE PESSOAS', 'PESSOAS NA FAMILIA'] },
+            { key: 'validadeVale', keywords: ['VALIDADE VALE', 'PERIODO VALIDADE VALE'] },
+            { key: 'dataInicioVigenciaVale', keywords: ['INICIO VIGENCIA', 'DATA INICIO'] },
+            { key: 'dataFimVigenciaVale', keywords: ['FIM VIGENCIA', 'DATA FIM'] },
+            { key: 'dataRetiradaVale', keywords: ['RETIRADA VALE', 'DATA RETIRADA'] },
+            { key: 'valorBeneficio', keywords: ['VALOR BENEFICIO', 'VALOR BENEF'] }
+        ];
+
+        // 3. Parser no Stream
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1')) // ou 'utf-8', dependendo da origem
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
+
+                    const cleanHeader = normalize(header);
+
+                    for (const rule of HEADER_RULES) {
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+                        if (rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw))) {
+                            return rule.key;
+                        }
+                    }
+
+                    log.info(`Não achou: ${cleanHeader}`);
+                    return cleanHeader;
+                }
+            }));
 
         for await (const data of parser) {
             batch.push({

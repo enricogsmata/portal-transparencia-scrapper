@@ -53,11 +53,11 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
                 if (h.includes('REFER')) return 'anoMesReferencia';
                 if (h.includes('COMPET')) return 'anoMesCompetencia';
                 if (h.includes('UF')) return 'uf';
-                if (h.includes('CÓDIGO MUNIC') || h.includes('CODIGO MUNIC')) return 'codigoMunicipioSiafi';
+                if (h.includes('SIAFI') || h.includes('CÓDIGO MUNICÍPIO')) return 'codigoMunicipioSiafi';
                 if (h.includes('NOME MUNIC')) return 'nomeMunicipioSiafi';
-                if (h.includes('CPF BENEFICI')) return 'cpfBeneficiario';
-                if (h.includes('NIS BENEFICI')) return 'nisBeneficiario';
-                if (h.includes('NOME BENEFICI')) return 'nomeBeneficiario';
+                if (h.includes('CPF FAVORECIDO')) return 'cpfBeneficiario';
+                if (h.includes('NIS FAVORECIDO')) return 'nisBeneficiario';
+                if (h.includes('NOME FAVORECIDO')) return 'nomeBeneficiario';
                 if (h.includes('DATA SAQUE')) return 'dataSaque';
                 if (h.includes('VALOR PARCELA')) return 'valorParcela';
                 return header.trim();

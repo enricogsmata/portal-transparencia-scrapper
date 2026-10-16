@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -42,6 +44,28 @@ async function persistData(data: BpcRow[]) {
     }
 }
 
+// Mapeamento de regras para o BPC
+const BPC_HEADER_RULES = [
+    { key: 'mesCompetencia', keywords: ['COMPET'] },
+    { key: 'mesReferencia', keywords: ['REFER', 'MES REFER'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'codigoMunicipioSiafi', keywords: ['SIAFI'], require: ['CODIGO'] },
+    { key: 'nomeMunicipio', keywords: ['NOME MUNIC', 'NOME DO MUNIC'] },
+
+    // Desambiguação Beneficiário vs Representante Legal
+    { key: 'nisBeneficiario', keywords: ['NIS'], require: ['BENEFICI'] },
+    { key: 'cpfBeneficiario', keywords: ['CPF'], require: ['BENEFICI'] },
+    { key: 'nomeBeneficiario', keywords: ['NOME'], require: ['BENEFICI'] },
+
+    { key: 'nisRepresentanteLegal', keywords: ['NIS'], require: ['REPRESENTANTE'] },
+    { key: 'cpfRepresentanteLegal', keywords: ['CPF'], require: ['REPRESENTANTE'] },
+    { key: 'nomeRepresentanteLegal', keywords: ['NOME'], require: ['REPRESENTANTE'] },
+
+    { key: 'numeroBeneficio', keywords: ['NUMERO BENEF', 'NUMERO DO BENEF'] },
+    { key: 'concedidoJudicialmente', keywords: ['JUDICIALMENTE', 'CONCEDIDO JUDICIAL'] },
+    { key: 'valorParcela', keywords: ['VALOR PARCELA', 'VALOR BENEFICIO'] }
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -49,27 +73,38 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
-                if (h.includes('COMPET')) return 'mesCompetencia';
-                if (h.includes('REFER')) return 'mesReferencia';
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h.includes('SIAFI') && (h.includes('CÓDIGO') || h.includes('CODIGO'))) return 'codigoMunicipioSiafi';
-                if (h.includes('NOME MUNIC')) return 'nomeMunicipio';
-                if (h.includes('NIS BENEFICI')) return 'nisBeneficiario';
-                if (h.includes('CPF BENEFICI')) return 'cpfBeneficiario';
-                if (h.includes('NOME BENEFICI')) return 'nomeBeneficiario';
-                if (h.includes('NIS REPRESENTANTE')) return 'nisRepresentanteLegal';
-                if (h.includes('CPF REPRESENTANTE')) return 'cpfRepresentanteLegal';
-                if (h.includes('NOME REPRESENTANTE')) return 'nomeRepresentanteLegal';
-                if (h.includes('NÚMERO BENEF') || h.includes('NUMERO BENEF')) return 'numeroBeneficio';
-                if (h.includes('JUDICIALMENTE')) return 'concedidoJudicialmente';
-                if (h.includes('VALOR PARCELA')) return 'valorParcela';
-                return header.trim();
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
+
+                    const cleanHeader = normalize(header);
+
+                    for (const rule of BPC_HEADER_RULES) {
+                        // Correspondência exata (ex: UF)
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        // Correspondência parcial
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            // Desambiguação de campos compostos (ex: BENEFICIÁRIO vs REPRESENTANTE)
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

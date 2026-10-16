@@ -32,6 +32,16 @@ export function extractMetadataFromFileName(fileName: string): ReferenceMetadata
         };
     }
 
+    const matchYYYYMMExtra = baseName.match(/^(\d{4})(\d{2})_(.+)$/);
+    if (matchYYYYMMExtra) {
+        return {
+            exercicioReferencia: matchYYYYMMExtra[1],
+            mesReferencia: matchYYYYMMExtra[2],
+            diaReferencia: null,
+            dadosAdicionais: matchYYYYMMExtra[3],
+        };
+    }
+
     const matchYYYYMM = baseName.match(/^(\d{4})(\d{2})$/);
     if (matchYYYYMM) {
         return {
@@ -59,3 +69,15 @@ export function extractMetadataFromFileName(fileName: string): ReferenceMetadata
         dadosAdicionais: baseName,
     };
 }
+
+export const normalize = (str: string): string =>
+    str ? str
+        .replace(/ç/gi, "c")             // Converte Ç / ç para C / c antes de remover acentos
+        .replace(/\$/g, "S")             // Converte $ para S
+        .normalize("NFD")                // Decompõe vogais acentuadas (ex: Í -> I + ◌́)
+        .replace(/[\u0300-\u036f]/g, "") // Remove os acentos decompostos
+        .replace(/[^A-Z0-9\s]/gi, "")   // Remove caracteres especiais restantes
+        .replace(/\s+/g, " ")           // Unifica múltiplos espaços
+        .trim()
+        .toUpperCase()
+        : "";

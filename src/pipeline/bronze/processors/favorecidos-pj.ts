@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -88,44 +90,79 @@ async function persistNaturezaJuridica(data: (typeof FavorecidosPjNaturezaJuridi
     }
 }
 
+const CNPJ_HEADER_RULES = [
+    { key: 'cnpj', matchExact: ['CNPJ'] },
+    { key: 'razaoSocial', keywords: ['RAZAOSOCIAL', 'RAZAO SOCIAL'] },
+    { key: 'nomeFantasia', keywords: ['NOMEFANTASIA', 'NOME FANTASIA'] },
+    { key: 'codigoCnae', keywords: ['CODCNAE', 'COD CNAE', 'CNAE'] },
+    { key: 'codigoNaturezaJuridica', keywords: ['CODNATJURIDICA', 'COD NATJURIDICA', 'NATUREZA JURIDICA'] },
+    { key: 'tipoPessoa', keywords: ['TIPOPESSOA', 'TIPO PESSOA'] },
+    { key: 'logradouro', matchExact: ['LOGRADOURO'] },
+    { key: 'numero', matchExact: ['NUMERO'] },
+    { key: 'complemento', matchExact: ['COMPLEMENTO'] },
+    { key: 'cep', matchExact: ['CEP'] },
+    { key: 'bairro', matchExact: ['BAIRRO'] },
+    { key: 'municipio', keywords: ['MUNICIPIO'] },
+    { key: 'uf', matchExact: ['UF'] },
+];
+
+const CNAE_HEADER_RULES = [
+    { key: 'codigoSecao', keywords: ['CODSECAO', 'COD SECAO'] },
+    { key: 'descricaoSecao', keywords: ['DESCSECAO', 'DESC SECAO'] },
+    { key: 'codigoSubclasse', keywords: ['CODSUBCLASSE', 'COD SUBCLASSE'] },
+    { key: 'descricaoSubclasse', keywords: ['DESCSUBCLASSE', 'DESC SUBCLASSE'] },
+];
+
+const NATUREZA_JURIDICA_HEADER_RULES = [
+    { key: 'codigoTipoNaturezaJuridica', keywords: ['CODTIPONATJURIDICA', 'COD TIPO NATJURIDICA'] },
+    { key: 'descricaoTipoNaturezaJuridica', keywords: ['DESCTIPONATJURIDICA', 'DESC TIPO NATJURIDICA'] },
+    { key: 'codigoNaturezaJuridica', keywords: ['CODNATJURIDICA', 'COD NATJURIDICA'] },
+    { key: 'descricaoNaturezaJuridica', keywords: ['DESCNATJURIDICA', 'DESC NATJURIDICA'] },
+];
+
+// Helper genérico para buscar no array de regras
+function resolveHeaderKey(header: string, rules: typeof CNPJ_HEADER_RULES): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+        if (rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw))) {
+            return rule.key;
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processCnpjStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCnpjStream');
     let batch: (typeof FavorecidosPjCnpj.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h === 'CNPJ') return 'cnpj';
-                if (h === 'RAZAOSOCIAL') return 'razaoSocial';
-                if (h === 'NOMEFANTASIA') return 'nomeFantasia';
-                if (h === 'COD_CNAE') return 'codigoCnae';
-                if (h === 'COD_NATJURIDICA') return 'codigoNaturezaJuridica';
-                if (h === 'TIPO_PESSOA') return 'tipoPessoa';
-                if (h === 'LOGRADOURO') return 'logradouro';
-                if (h === 'NUMERO') return 'numero';
-                if (h === 'COMPLEMENTO') return 'complemento';
-                if (h === 'CEP') return 'cep';
-                if (h === 'BAIRRO') return 'bairro';
-                if (h === 'MUNICIPIO') return 'municipio';
-                if (h === 'UF') return 'uf';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, CNPJ_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
                 ...data,
                 ...metadata,
             });
+
             if (batch.length >= BATCH_SIZE) {
                 await persistCnpj(batch);
                 totalProcessed += batch.length;
                 batch = [];
             }
         }
+
         if (batch.length > 0) {
             await persistCnpj(batch);
             totalProcessed += batch.length;
@@ -145,29 +182,26 @@ async function processCnaeStream(stream: NodeJS.ReadableStream, metadata: Refere
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h === 'COD_SECAO') return 'codigoSecao';
-                if (h === 'DESC_SECAO') return 'descricaoSecao';
-                if (h === 'COD_SUBCLASSE') return 'codigoSubclasse';
-                if (h === 'DESC_SUBCLASSE') return 'descricaoSubclasse';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, CNAE_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
                 ...data,
                 ...metadata,
             });
+
             if (batch.length >= BATCH_SIZE) {
                 await persistCnae(batch);
                 totalProcessed += batch.length;
                 batch = [];
             }
         }
+
         if (batch.length > 0) {
             await persistCnae(batch);
             totalProcessed += batch.length;
@@ -187,29 +221,26 @@ async function processNaturezaJuridicaStream(stream: NodeJS.ReadableStream, meta
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h === 'COD_NATJURIDICA') return 'codigoNaturezaJuridica';
-                if (h === 'DESC_NATJURIDICA') return 'descricaoNaturezaJuridica';
-                if (h === 'COD_TIPO_NATJURIDICA') return 'codigoTipoNaturezaJuridica';
-                if (h === 'DESC_TIPO_NATJURIDICA') return 'descricaoTipoNaturezaJuridica';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, NATUREZA_JURIDICA_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
                 ...data,
                 ...metadata,
             });
+
             if (batch.length >= BATCH_SIZE) {
                 await persistNaturezaJuridica(batch);
                 totalProcessed += batch.length;
                 batch = [];
             }
         }
+
         if (batch.length > 0) {
             await persistNaturezaJuridica(batch);
             totalProcessed += batch.length;

@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -44,6 +46,33 @@ async function persistData(data: CartaoPagamentoDefesaCivilRow[]) {
     }
 }
 
+// Mapeamento de regras para o Cartão de Pagamento da Defesa Civil
+const DEFESA_CIVIL_HEADER_RULES = [
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'executorDespesa', keywords: ['EXECUTOR DESPESA'] },
+    { key: 'codigoConvenente', keywords: ['CONVENENTE'], require: ['CODIGO'] },
+    { key: 'nomeConvenente', keywords: ['CONVENENTE'], require: ['NOME'] },
+    { key: 'repasse', keywords: ['REPASSE'] },
+    { key: 'numeroConvenio', keywords: ['NUMERO CONVENIO', 'NUMERO DO CONVENIO'] },
+
+    // Extrato
+    { key: 'anoExtrato', keywords: ['ANO EXTRATO'] },
+    { key: 'mesExtrato', keywords: ['MES EXTRATO'] },
+
+    // Portador
+    { key: 'cpfPortador', keywords: ['CPF PORTADOR'] },
+    { key: 'nomePortador', keywords: ['NOME PORTADOR'] },
+
+    // Transação (A ordem importa: DATA e VALOR antes de TRANSAÇÃO isolado)
+    { key: 'dataTransacao', keywords: ['DATA TRANSACAO', 'DATA DA TRANSACAO'] },
+    { key: 'valorTransacao', keywords: ['VALOR TRANSACAO', 'VALOR DA TRANSACAO'] },
+    { key: 'transacao', matchExact: ['TRANSACAO', 'TIPO DE TRANSACAO', 'TIPO TRANSACAO'] },
+
+    // Favorecido
+    { key: 'nomeFavorecido', keywords: ['NOME FAVORECIDO', 'NOME DO FAVORECIDO'] },
+    { key: 'documentoFavorecido', keywords: ['CNPJ', 'CPF FAVORECIDO', 'CPF DO FAVORECIDO', 'DOCUMENTO FAVORECIDO'] }
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -51,30 +80,37 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
 
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h.includes('EXECUTOR DESPESA')) return 'executorDespesa';
-                if (h.includes('CÓDIGO CONVENENTE') || h.includes('CODIGO CONVENENTE')) return 'codigoConvenente';
-                if (h.includes('NOME CONVENENTE')) return 'nomeConvenente';
-                if (h.includes('REPASSE')) return 'repasse';
-                if (h.includes('NÚMERO CONVÊNIO') || h.includes('NUMERO CONVENIO')) return 'numeroConvenio';
-                if (h.includes('ANO EXTRATO')) return 'anoExtrato';
-                if (h.includes('MÊS EXTRATO') || h.includes('MES EXTRATO')) return 'mesExtrato';
-                if (h.includes('CPF PORTADOR')) return 'cpfPortador';
-                if (h.includes('NOME PORTADOR')) return 'nomePortador';
-                if (h === 'TRANSAÇÃO' || h === 'TRANSACAO') return 'transacao';
-                if (h.includes('DATA TRANSAÇÃO') || h.includes('DATA TRANSACAO')) return 'dataTransacao';
-                if (h.includes('CNPJ') || h.includes('CPF DO FAVORECIDO') || h.includes('CPF FAVORECIDO')) return 'documentoFavorecido';
-                if (h.includes('NOME DO FAVORECIDO') || h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
-                if (h.includes('VALOR TRANSAÇÃO') || h.includes('VALOR TRANSACAO')) return 'valorTransacao';
+                    const cleanHeader = normalize(header);
 
-                return header.trim();
-            },
-        }));
+                    for (const rule of DEFESA_CIVIL_HEADER_RULES) {
+                        // Correspondência exata
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        // Correspondência por keywords
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

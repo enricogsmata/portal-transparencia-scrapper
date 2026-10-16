@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
@@ -9,7 +10,7 @@ import {
     ImoveisFuncionais, 
     ImoveisFuncionaisPermissionarios 
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -57,22 +58,64 @@ async function persistPermissionarios(data: (typeof ImoveisFuncionaisPermissiona
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const IMOVEIS_FUNCIONAIS_HEADER_RULES: HeaderRule[] = [
+    { key: 'endereco', keywords: ['ENDERECO'] },
+    { key: 'orgaoResponsavel', keywords: ['ORGAO RESPONSAVEL', 'RESPONSAVEL'] },
+    { key: 'situacao', keywords: ['SITUACAO'] },
+];
+
+const PERMISSIONARIOS_HEADER_RULES: HeaderRule[] = [
+    { key: 'orgaoExercicio', keywords: ['ORGAOEXERCICIO', 'ORGAO EXERCICIO', 'EXERCICIO'] },
+    { key: 'nomePermissionario', keywords: ['PERMISSIONARIO', 'NOME PERMISSIONARIO'] },
+    { key: 'cpf', matchExact: ['CPF'] },
+    { key: 'cargoFuncao', keywords: ['CARGO', 'CARGOFUNCAO', 'CARGO FUNCAO'] },
+    { key: 'dataOcupacao', keywords: ['DATAOCUPACAO', 'DATA OCUPACAO', 'OCUPACAO'] },
+];
+
+// Helper genérico para buscar no array de regras
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processImoveisFuncionaisStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processImoveisFuncionaisStream');
     let batch: (typeof ImoveisFuncionais.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('ENDEREÇO') || h.includes('ENDERECO')) return 'endereco';
-                if (h.includes('ÓRGÃO RESPONSÁVEL') || h.includes('ORGAO RESPONSAVEL')) return 'orgaoResponsavel';
-                if (h.includes('SITUAÇÃO') || h.includes('SITUACAO')) return 'situacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, IMOVEIS_FUNCIONAIS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -90,10 +133,10 @@ async function processImoveisFuncionaisStream(stream: NodeJS.ReadableStream, met
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Imóveis Funcionais concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Imóveis Funcionais');
         throw error;
     }
 }
@@ -104,18 +147,12 @@ async function processPermissionariosStream(stream: NodeJS.ReadableStream, metad
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NOME PERMISSIONÁRIO') || h.includes('NOME PERMISSIONARIO')) return 'nomePermissionario';
-                if (h === 'CPF') return 'cpf';
-                if (h.includes('CARGOFUNÇÃO') || h.includes('CARGOFUNCAO') || h.includes('CARGO/FUNÇÃO') || h.includes('CARGO/FUNCAO')) return 'cargoFuncao';
-                if (h.includes('ORGAOEXERCICIO') || h.includes('ÓRGÃO EXERCÍCIO') || h.includes('ORGAO EXERCICIO')) return 'orgaoExercicio';
-                if (h.includes('DATAOCUPACAO') || h.includes('DATA OCUPAÇÃO') || h.includes('DATA OCUPACAO')) return 'dataOcupacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, PERMISSIONARIOS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -133,10 +170,10 @@ async function processPermissionariosStream(stream: NodeJS.ReadableStream, metad
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Permissionários concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Permissionários');
         throw error;
     }
 }

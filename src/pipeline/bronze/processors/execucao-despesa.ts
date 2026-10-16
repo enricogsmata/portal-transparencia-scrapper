@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -76,6 +78,67 @@ async function persistData(data: ExecucaoDespesaRow[]) {
     }
 }
 
+// Rules map para ExecucaoDespesa (Despesas Execução)
+const EXECUCAO_DESPESA_HEADER_RULES = [
+    { key: 'anoMesLancamento', keywords: ['ANO E MES', 'ANO MES'] },
+
+    // Órgãos, UG ken Gestão
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+    { key: 'codigoOrgaoSubordinado', keywords: ['ORGAO SUBORDINADO'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSubordinado', keywords: ['ORGAO SUBORDINADO'], require: ['NOME'] },
+    { key: 'codigoUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['CODIGO'] },
+    { key: 'nomeUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['NOME'] },
+    { key: 'codigoGestao', keywords: ['GESTAO'], require: ['CODIGO'] },
+    { key: 'nomeGestao', keywords: ['GESTAO'], require: ['NOME'] },
+
+    // Estrutura Orçamentária
+    { key: 'codigoUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['CODIGO'] },
+    { key: 'nomeUnidadeOrcamentaria', keywords: ['UNIDADE ORCAMENTARIA'], require: ['NOME'] },
+    { key: 'codigoSubfuncao', keywords: ['SUBFUNCAO', 'SUBFUCAO'], require: ['CODIGO'] },
+    { key: 'nomeSubfuncao', keywords: ['SUBFUNCAO', 'SUBFUCAO'], require: ['NOME'] },
+    { key: 'codigoFuncao', keywords: ['FUNCAO'], require: ['CODIGO'] },
+    { key: 'nomeFuncao', keywords: ['FUNCAO'], require: ['NOME'] },
+    { key: 'codigoProgramaOrcamentario', keywords: ['PROGRAMA ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'nomeProgramaOrcamentario', keywords: ['PROGRAMA ORCAMENTARIO'], require: ['NOME'] },
+    { key: 'codigoAcao', keywords: ['ACAO'], require: ['CODIGO'] },
+    { key: 'nomeAcao', keywords: ['ACAO'], require: ['NOME'] },
+    { key: 'codigoPlanoOrcamentario', keywords: ['PLANO ORCAMENTARIO'], require: ['CODIGO'] },
+    { key: 'planoOrcamentario', keywords: ['PLANO ORCAMENTARIO'] },
+    { key: 'codigoProgramaGoverno', keywords: ['PROGRAMA GOVERNO'], require: ['CODIGO'] },
+    { key: 'nomeProgramaGoverno', keywords: ['PROGRAMA GOVERNO'], require: ['NOME'] },
+
+    // Localização ken Emendas
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'municipio', keywords: ['MUNICIPIO'] },
+    { key: 'codigoSubtitulo', keywords: ['SUBTITULO'], require: ['CODIGO'] },
+    { key: 'nomeSubtitulo', keywords: ['SUBTITULO'], require: ['NOME'] },
+    { key: 'codigoLocalizador', keywords: ['LOCALIZADOR'], require: ['CODIGO'] },
+    { key: 'nomeLocalizador', keywords: ['LOCALIZADOR'], require: ['NOME'] },
+    { key: 'siglaLocalizador', keywords: ['LOCALIZADOR'], require: ['SIGLA'] },
+    { key: 'descricaoComplementarLocalizador', keywords: ['DESCRICAO COMPLEMENTAR'] },
+    { key: 'codigoAutorEmenda', keywords: ['AUTOR EMENDA'], require: ['CODIGO'] },
+    { key: 'nomeAutorEmenda', keywords: ['AUTOR EMENDA'], require: ['NOME'] },
+
+    // Classificação da Despesa
+    { key: 'codigoCategoriaEconomica', keywords: ['CATEGORIA ECONOMICA'], require: ['CODIGO'] },
+    { key: 'nomeCategoriaEconomica', keywords: ['CATEGORIA ECONOMICA'], require: ['NOME'] },
+    { key: 'codigoGrupoDespesa', keywords: ['GRUPO DE DESPESA', 'GRUPO DESPESA'], require: ['CODIGO'] },
+    { key: 'nomeGrupoDespesa', keywords: ['GRUPO DE DESPESA', 'GRUPO DESPESA'], require: ['NOME'] },
+    { key: 'codigoElementoDespesa', keywords: ['ELEMENTO DE DESPESA', 'ELEMENTO DESPESA'], require: ['CODIGO'] },
+    { key: 'nomeElementoDespesa', keywords: ['ELEMENTO DE DESPESA', 'ELEMENTO DESPESA'], require: ['NOME'] },
+    { key: 'codigoModalidadeDespesa', keywords: ['MODALIDADE DA DESPESA', 'MODALIDADE DESPESA'], require: ['CODIGO'] },
+    { key: 'modalidadeDespesa', keywords: ['MODALIDADE DA DESPESA', 'MODALIDADE DESPESA'] },
+
+    // Valores
+    { key: 'valorEmpenhado', keywords: ['VALOR EMPENHADO'] },
+    { key: 'valorLiquidado', keywords: ['VALOR LIQUIDADO'] },
+    { key: 'valorPago', keywords: ['VALOR PAGO'] },
+    { key: 'valorRestosAPagarInscritos', keywords: ['RESTOS A PAGAR INSCRITOS'] },
+    { key: 'valorRestosAPagarCancelado', keywords: ['RESTOS A PAGAR CANCELADO'] },
+    { key: 'valorRestosAPagarPagos', keywords: ['RESTOS A PAGAR PAGOS'] }
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -83,62 +146,35 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
 
-                if (h.includes('ANO E MÊS') || h.includes('ANO E MES')) return 'anoMesLancamento';
-                if (h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h === 'NOME ÓRGÃO SUPERIOR' || h === 'NOME ORGAO SUPERIOR') return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO SUBORDINADO') || h.includes('CODIGO ORGAO SUBORDINADO')) return 'codigoOrgaoSubordinado';
-                if (h === 'NOME ÓRGÃO SUBORDINADO' || h === 'NOME ORGAO SUBORDINADO') return 'nomeOrgaoSubordinado';
-                if (h.includes('CÓDIGO UNIDADE GESTORA') || h.includes('CODIGO UNIDADE GESTORA')) return 'codigoUnidadeGestora';
-                if (h === 'NOME UNIDADE GESTORA') return 'nomeUnidadeGestora';
-                if (h.includes('CÓDIGO GESTÃO') || h.includes('CODIGO GESTAO')) return 'codigoGestao';
-                if (h === 'NOME GESTÃO' || h === 'NOME GESTAO') return 'nomeGestao';
-                if (h.includes('CÓDIGO UNIDADE ORÇAMENTÁRIA') || h.includes('CODIGO UNIDADE ORCAMENTARIA')) return 'codigoUnidadeOrcamentaria';
-                if (h === 'NOME UNIDADE ORÇAMENTÁRIA' || h === 'NOME UNIDADE ORCAMENTARIA') return 'nomeUnidadeOrcamentaria';
-                if (h.includes('CÓDIGO FUNÇÃO') || h.includes('CODIGO FUNCAO')) return 'codigoFuncao';
-                if (h === 'NOME FUNÇÃO' || h === 'NOME FUNCAO') return 'nomeFuncao';
-                if (h.includes('CÓDIGO SUBFUNÇÃO') || h.includes('CODIGO SUBFUNCAO')) return 'codigoSubfuncao';
-                if (h === 'NOME SUBFUNÇÃO' || h === 'NOME SUBFUNCAO') return 'nomeSubfuncao';
-                if (h.includes('CÓDIGO PROGRAMA ORÇAMENTÁRIO') || h.includes('CODIGO PROGRAMA ORCAMENTARIO')) return 'codigoProgramaOrcamentario';
-                if (h === 'NOME PROGRAMA ORÇAMENTÁRIO' || h === 'NOME PROGRAMA ORCAMENTARIO') return 'nomeProgramaOrcamentario';
-                if (h.includes('CÓDIGO AÇÃO') || h.includes('CODIGO ACAO')) return 'codigoAcao';
-                if (h === 'NOME AÇÃO' || h === 'NOME ACAO') return 'nomeAcao';
-                if (h.includes('CÓDIGO PLANO ORÇAMENTÁRIO') || h.includes('CODIGO PLANO ORCAMENTARIO')) return 'codigoPlanoOrcamentario';
-                if (h === 'PLANO ORÇAMENTÁRIO' || h === 'PLANO ORCAMENTARIO') return 'planoOrcamentario';
-                if (h.includes('CÓDIGO PROGRAMA GOVERNO') || h.includes('CODIGO PROGRAMA GOVERNO')) return 'codigoProgramaGoverno';
-                if (h === 'NOME PROGRAMA GOVERNO') return 'nomeProgramaGoverno';
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h === 'MUNICÍPIO' || h === 'MUNICIPIO') return 'municipio';
-                if (h.includes('CÓDIGO SUBTÍTULO') || h.includes('CODIGO SUBTITULO')) return 'codigoSubtitulo';
-                if (h === 'NOME SUBTÍTULO' || h === 'NOME SUBTITULO') return 'nomeSubtitulo';
-                if (h.includes('CÓDIGO LOCALIZADOR') || h.includes('CODIGO LOCALIZADOR')) return 'codigoLocalizador';
-                if (h === 'NOME LOCALIZADOR') return 'nomeLocalizador';
-                if (h === 'SIGLA LOCALIZADOR') return 'siglaLocalizador';
-                if (h.includes('DESCRIÇÃO COMPLEMENTAR') || h.includes('DESCRICAO COMPLEMENTAR')) return 'descricaoComplementarLocalizador';
-                if (h.includes('CÓDIGO AUTOR EMENDA') || h.includes('CODIGO AUTOR EMENDA')) return 'codigoAutorEmenda';
-                if (h === 'NOME AUTOR EMENDA') return 'nomeAutorEmenda';
-                if (h.includes('CÓDIGO CATEGORIA ECONÔMICA') || h.includes('CODIGO CATEGORIA ECONOMICA')) return 'codigoCategoriaEconomica';
-                if (h === 'NOME CATEGORIA ECONÔMICA' || h === 'NOME CATEGORIA ECONOMICA') return 'nomeCategoriaEconomica';
-                if (h.includes('CÓDIGO GRUPO DE DESPESA') || h.includes('CODIGO GRUPO DE DESPESA')) return 'codigoGrupoDespesa';
-                if (h === 'NOME GRUPO DE DESPESA') return 'nomeGrupoDespesa';
-                if (h.includes('CÓDIGO ELEMENTO DE DESPESA') || h.includes('CODIGO ELEMENTO DE DESPESA')) return 'codigoElementoDespesa';
-                if (h === 'NOME ELEMENTO DE DESPESA') return 'nomeElementoDespesa';
-                if (h.includes('CÓDIGO MODALIDADE DA DESPESA') || h.includes('CODIGO MODALIDADE DA DESPESA')) return 'codigoModalidadeDespesa';
-                if (h === 'MODALIDADE DA DESPESA') return 'modalidadeDespesa';
-                if (h.includes('VALOR EMPENHADO')) return 'valorEmpenhado';
-                if (h.includes('VALOR LIQUIDADO')) return 'valorLiquidado';
-                if (h.includes('VALOR PAGO')) return 'valorPago';
-                if (h.includes('RESTOS A PAGAR INSCRITOS')) return 'valorRestosAPagarInscritos';
-                if (h.includes('RESTOS A PAGAR CANCELADO')) return 'valorRestosAPagarCancelado';
-                if (h.includes('RESTOS A PAGAR PAGOS')) return 'valorRestosAPagarPagos';
+                    const cleanHeader = normalize(header);
 
-                return header.trim();
-            },
-        }));
+                    for (const rule of EXECUCAO_DESPESA_HEADER_RULES) {
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

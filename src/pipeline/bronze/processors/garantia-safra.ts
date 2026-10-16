@@ -51,9 +51,9 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
                 if (h.includes('UF')) return 'uf';
                 if (h.includes('SIAFI')) return 'codigoSiafiMunicipio';
                 if (h.includes('NOME MUNIC')) return 'nomeMunicipio';
-                if (h.includes('NIS BENEFICI')) return 'nisBeneficiario';
-                if (h.includes('NOME BENEFICI')) return 'nomeBeneficiario';
-                if (h.includes('VALOR BENEF')) return 'valorBeneficio';
+                if (h.includes('NIS FAVORECIDO')) return 'nisBeneficiario';
+                if (h.includes('NOME FAVORECIDO')) return 'nomeBeneficiario';
+                if (h.includes('VALOR PARCELA')) return 'valorBeneficio';
                 return header.trim();
             },
         }));

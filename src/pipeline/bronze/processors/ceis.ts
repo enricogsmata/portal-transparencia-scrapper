@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { Ceis } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -53,45 +54,82 @@ async function persistCeis(data: (typeof Ceis.$inferInsert)[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const CEIS_HEADER_RULES: HeaderRule[] = [
+    { key: 'abrangenciaSancao', keywords: ['ABRAGENCIA DA SANCAO'] },
+    { key: 'cadastro', matchExact: ['CADASTRO'] },
+    { key: 'codigoSancao', keywords: ['SANCAO'], require: ['CODIGO'] },
+    { key: 'tipoPessoa', keywords: ['TIPO DE PESSOA', 'TIPO PESSOA'] },
+    { key: 'cpfCnpjSancionado', keywords: ['SANCIONADO'], require: ['CPF', 'CNPJ'] },
+    { key: 'nomeSancionado', keywords: ['NOME DO SANCIONADO', 'NOME SANCIONADO'] },
+    { key: 'nomeInformadoOrgaoSancionador', keywords: ['INFORMADO PELO ORGAO'] },
+    { key: 'razaoSocialCadastroReceita', keywords: ['RAZAO SOCIAL'] },
+    { key: 'nomeFantasiaCadastroReceita', keywords: ['NOME FANTASIA'] },
+    { key: 'numeroProcesso', keywords: ['PROCESSO', 'NUMERO DO PROCESSO'] },
+    { key: 'categoriaSancao', keywords: ['CATEGORIA DA SANCAO', 'CATEGORIA SANCAO'] },
+
+    // Datas
+    { key: 'dataInicioSancao', keywords: ['INICIO SANCAO'], require: ['DATA', 'INICIO'] },
+    { key: 'dataFinalSancao', keywords: ['FINAL SANCAO'], require: ['DATA', 'FINAL'] },
+    { key: 'dataPublicacao', keywords: ['PUBLICACAO'], require: ['DATA'] },
+    { key: 'publicacao', matchExact: ['PUBLICACAO'] },
+    { key: 'detalhamentoMeioPublicacao', keywords: ['DETALHAMENTO'] },
+    { key: 'dataTransitoJulgado', keywords: ['TRANSITO EM JULGADO', 'TRANSITO JULGADO'] },
+
+    // Órgão Sancionador
+    { key: 'ufOrgaoSancionador', keywords: ['ORGAO SANCIONADOR'], require: ['UF'] },
+    { key: 'esferaOrgaoSancionador', keywords: ['ORGAO SANCIONADOR'], require: ['ESFERA'] },
+    { key: 'orgaoSancionador', keywords: ['ORGAO SANCIONADOR'] },
+
+    { key: 'fundamentacaoLegal', keywords: ['FUNDAMENTACAO LEGAL'] },
+    { key: 'dataOrigemInformacao', keywords: ['ORIGEM INFORMACAO', 'ORIGEM DA INFORMACAO'], require: ['DATA'] },
+    { key: 'origemInformacoes', keywords: ['ORIGEM INFORMACAO', 'ORIGEM INFORMACOES'] },
+    { key: 'observacoes', keywords: ['OBSERVACOES', 'OBSERVACAO'] },
+];
+
+// Helper genérico para resolução das chaves
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    for (const rule of rules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+            return rule.key;
+        }
+
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+        if (hasKeyword) {
+            if (rule.require) {
+                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                if (hasRequired) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processCeisStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCeisStream');
     let batch: (typeof Ceis.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-
-                if (h === 'CADASTRO') return 'cadastro';
-                if (h.includes('CÓDIGO DA SANÇÃO') || h.includes('CODIGO DA SANCAO')) return 'codigoSancao';
-                if (h.includes('TIPO DE PESSOA')) return 'tipoPessoa';
-                if (h.includes('CPF OU CNPJ DO SANCIONADO') || h.includes('CPF/CNPJ DO SANCIONADO')) return 'cpfCnpjSancionado';
-                if (h.includes('NOME DO SANCIONADO')) return 'nomeSancionado';
-                if (h.includes('NOME INFORMADO PELO ÓRGÃO SANCIONADOR') || h.includes('NOME INFORMADO PELO ORGAO SANCIONADOR')) return 'nomeInformadoOrgaoSancionador';
-                if (h.includes('RAZÃO SOCIAL') || h.includes('RAZAO SOCIAL')) return 'razaoSocialCadastroReceita';
-                if (h.includes('NOME FANTASIA')) return 'nomeFantasiaCadastroReceita';
-                if (h.includes('NÚMERO DO PROCESSO') || h.includes('NUMERO DO PROCESSO')) return 'numeroProcesso';
-                if (h.includes('CATEGORIA DA SANÇÃO') || h.includes('CATEGORIA DA SANCAO')) return 'categoriaSancao';
-                if (h.includes('DATA INÍCIO SANÇÃO') || h.includes('DATA INICIO SANCAO')) return 'dataInicioSancao';
-                if (h.includes('DATA FINAL SANÇÃO') || h.includes('DATA FINAL SANCAO')) return 'dataFinalSancao';
-                if (h.includes('DATA PUBLICAÇÃO') || h.includes('DATA PUBLICACAO')) return 'dataPublicacao';
-                if (h === 'PUBLICAÇÃO' || h === 'PUBLICACAO') return 'publicacao';
-                if (h.includes('DETALHAMENTO DO MEIO DE PUBLICAÇÃO') || h.includes('DETALHAMENTO DO MEIO DE PUBLICACAO') || h.includes('DETALHAMENTO')) return 'detalhamentoMeioPublicacao';
-                if (h.includes('DATA DO TRÂNSITO EM JULGADO') || h.includes('DATA DO TRANSITO EM JULGADO')) return 'dataTransitoJulgado';
-                if (h.includes('ABRAGÊNCIA DA SANÇÃO') || h.includes('ABRANGENCIA DA SANCAO') || h.includes('ABRANGÊNCIA DA SANÇÃO')) return 'abrangenciaSancao';
-                if (h === 'ÓRGÃO SANCIONADOR' || h === 'ORGAO SANCIONADOR') return 'orgaoSancionador';
-                if (h.includes('UF ÓRGÃO SANCIONADOR') || h.includes('UF ORGAO SANCIONADOR')) return 'ufOrgaoSancionador';
-                if (h.includes('ESFERA ÓRGÃO SANCIONADOR') || h.includes('ESFERA ORGAO SANCIONADOR')) return 'esferaOrgaoSancionador';
-                if (h.includes('FUNDAMENTAÇÃO LEGAL') || h.includes('FUNDAMENTACAO LEGAL')) return 'fundamentacaoLegal';
-                if (h.includes('DATA ORIGEM INFORMAÇÃO') || h.includes('DATA ORIGEM INFORMACAO')) return 'dataOrigemInformacao';
-                if (h.includes('ORIGEM INFORMAÇÕES') || h.includes('ORIGEM INFORMACOES')) return 'origemInformacoes';
-                if (h.includes('OBSERVAÇÕES') || h.includes('OBSERVACOES')) return 'observacoes';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveHeaderKey(header, CEIS_HEADER_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -109,10 +147,10 @@ async function processCeisStream(stream: NodeJS.ReadableStream, metadata: Refere
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento do CEIS concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream do CEIS');
         throw error;
     }
 }

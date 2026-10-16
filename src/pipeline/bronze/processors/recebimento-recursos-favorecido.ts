@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
+import { normalize } from '../shared.js';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -41,6 +43,36 @@ async function persistData(data: RecebimentoRecursosFavorecidoRow[]) {
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+const RECEBIMENTO_RECURSOS_FAVORECIDO_HEADER_RULES: HeaderRule[] = [
+    // Favorecido e Localização
+    { key: 'codigoFavorecido', keywords: ['FAVORECIDO'], require: ['CODIGO'] },
+    { key: 'nomeFavorecido', keywords: ['FAVORECIDO'], require: ['NOME'] },
+    { key: 'siglaUf', keywords: ['SIGLA UF'], matchExact: ['UF'] },
+    { key: 'nomeMunicipio', keywords: ['MUNICIPIO'], require: ['NOME'] },
+
+    // Órgãos
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+
+    { key: 'codigoOrgao', keywords: ['CODIGO ORGAO', 'CODIGO DO ORGAO'] },
+    { key: 'nomeOrgao', keywords: ['NOME ORGAO', 'NOME DO ORGAO'] },
+
+    // Unidade Gestora
+    { key: 'codigoUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['CODIGO'] },
+    { key: 'nomeUnidadeGestora', keywords: ['UNIDADE GESTORA'], require: ['NOME'] },
+
+    // Período e Valor
+    { key: 'anoMesLancamento', keywords: ['ANO E MES', 'ANO MES DO LANCAMENTO', 'LANCAMENTO'] },
+    { key: 'valorRecebido', keywords: ['VALOR RECEBIDO'] },
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -48,27 +80,35 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
 
-                if (h.includes('CÓDIGO FAVORECIDO') || h.includes('CODIGO FAVORECIDO')) return 'codigoFavorecido';
-                if (h.includes('NOME FAVORECIDO')) return 'nomeFavorecido';
-                if (h.includes('SIGLA UF')) return 'siglaUf';
-                if (h.includes('NOME MUNICÍPIO') || h.includes('NOME MUNICIPIO')) return 'nomeMunicipio';
-                if (h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h.includes('CÓDIGO UNIDADE GESTORA') || h.includes('CODIGO UNIDADE GESTORA')) return 'codigoUnidadeGestora';
-                if (h.includes('NOME UNIDADE GESTORA')) return 'nomeUnidadeGestora';
-                if (h.includes('ANO E MÊS DO LANÇAMENTO') || h.includes('ANO E MES DO LANCAMENTO')) return 'anoMesLancamento';
-                if (h.includes('VALOR RECEBIDO')) return 'valorRecebido';
+                    const cleanHeader = normalize(header);
 
-                return header.trim();
-            },
-        }));
+                    for (const rule of RECEBIMENTO_RECURSOS_FAVORECIDO_HEADER_RULES) {
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+
+                        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+
+                        if (hasKeyword) {
+                            if (rule.require) {
+                                const hasRequired = rule.require.some(req => cleanHeader.includes(req));
+                                if (hasRequired) return rule.key;
+                            } else {
+                                return rule.key;
+                            }
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

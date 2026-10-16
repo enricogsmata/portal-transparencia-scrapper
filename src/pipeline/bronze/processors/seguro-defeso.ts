@@ -6,7 +6,8 @@ import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { SeguroDefeso } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
+import iconv from 'iconv-lite';
 
 const logger = new_logger(import.meta.url);
 
@@ -38,6 +39,19 @@ async function persistData(data: SeguroDefesoRow[]) {
     }
 }
 
+// Mapeamento de regras do Seguro Defeso
+const SEGURO_DEFESO_HEADER_RULES = [
+    { key: 'anoMesReferencia', keywords: ['REFER', 'MES REFER'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'codigoSiafiMunicipio', keywords: ['SIAFI', 'CODIGO MUNIC'] },
+    { key: 'nomeMunicipio', keywords: ['NOME DO MUNIC', 'NOME MUNIC'] },
+    { key: 'cpfFavorecido', keywords: ['CPF'] },
+    { key: 'nisFavorecido', keywords: ['NIS'] },
+    { key: 'rgpFavorecido', keywords: ['RGP'] },
+    { key: 'nomeFavorecido', keywords: ['NOME FAVORECIDO', 'NOME BENEFICI'] },
+    { key: 'valorParcela', keywords: ['VALOR PARCELA', 'VALOR BENEFICIO'] }
+];
+
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processCsvStream');
     const BATCH_SIZE = 2000;
@@ -45,22 +59,28 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase();
-                if (h.includes('REFER')) return 'anoMesReferencia';
-                if (h === 'UF' || h.includes('UF ')) return 'uf';
-                if (h.includes('SIAFI')) return 'codigoSiafiMunicipio';
-                if (h.includes('NOME MUNIC')) return 'nomeMunicipio';
-                if (h.includes('CPF')) return 'cpfFavorecido';
-                if (h.includes('NIS')) return 'nisFavorecido';
-                if (h.includes('RGP')) return 'rgpFavorecido';
-                if (h.includes('NOME FAVORECIDO') || h.includes('NOME BENEFICI')) return 'nomeFavorecido';
-                if (h.includes('VALOR PARCELA')) return 'valorParcela';
-                return header.trim();
-            },
-        }));
+        // Intercepta a stream convertendo o encoding de ISO-8859-1 (latin1) para UTF-8 limpo
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => {
+                    if (!header) return null;
+
+                    const cleanHeader = normalize(header);
+
+                    for (const rule of SEGURO_DEFESO_HEADER_RULES) {
+                        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) {
+                            return rule.key;
+                        }
+                        if (rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw))) {
+                            return rule.key;
+                        }
+                    }
+
+                    return cleanHeader;
+                },
+            }));
 
         for await (const data of parser) {
             batch.push({

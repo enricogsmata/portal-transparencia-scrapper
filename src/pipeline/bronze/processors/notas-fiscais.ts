@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -10,7 +11,7 @@ import {
     NotaFiscalEvento,
     NotaFiscalItem
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -125,30 +126,98 @@ async function persistNotaFiscalItem(data: (typeof NotaFiscalItem.$inferInsert)[
     }
 }
 
-function mapCommonHeaders(h: string): string | null {
-    if (h.includes('CHAVE DE ACESSO')) return 'chaveAcesso';
-    if (h === 'MODELO') return 'modelo';
-    if (h === 'SÉRIE' || h === 'SERIE') return 'serie';
-    if (h === 'NÚMERO' || h === 'NUMERO') return 'numero';
-    if (h.includes('NATUREZA DA OPERAÇÃO') || h.includes('NATUREZA DA OPERACAO')) return 'naturezaOperacao';
-    if (h.includes('DATA EMISSÃO') || h.includes('DATA EMISSAO')) return 'dataEmissao';
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
 
-    if (h.includes('CPF/CNPJ EMITENTE')) return 'cpfCnpjEmitente';
-    if (h.includes('RAZÃO SOCIAL EMITENTE') || h.includes('RAZAO SOCIAL EMITENTE')) return 'razaoSocialEmitente';
-    if (h.includes('INSCRIÇÃO ESTADUAL EMITENTE') || h.includes('INSCRICAO ESTADUAL EMITENTE')) return 'inscricaoEstadualEmitente';
-    if (h.includes('UF EMITENTE')) return 'ufEmitente';
-    if (h.includes('MUNICÍPIO EMITENTE') || h.includes('MUNICIPIO EMITENTE')) return 'municipioEmitente';
+// Regras comuns a todos os arquivos de Nota Fiscal
+const COMMON_NOTA_FISCAL_RULES: HeaderRule[] = [
+    { key: 'chaveAcesso', keywords: ['CHAVE DE ACESSO', 'CHAVE ACESSO'] },
+    { key: 'modelo', matchExact: ['MODELO'] },
+    { key: 'serie', matchExact: ['SERIE'] },
+    { key: 'numero', matchExact: ['NUMERO', 'NUMERO NOTA FISCAL'] },
+    { key: 'naturezaOperacao', keywords: ['NATUREZA DA OPERACAO', 'NATUREZA OPERACAO'] },
+    { key: 'dataEmissao', keywords: ['DATA EMISSAO', 'DATA DE EMISSAO'] },
 
-    if (h.includes('CNPJ DESTINATÁRIO') || h.includes('CNPJ DESTINATARIO')) return 'cnpjDestinatario';
-    if (h.includes('NOME DESTINATÁRIO') || h.includes('NOME DESTINATARIO')) return 'nomeDestinatario';
-    if (h.includes('UF DESTINATÁRIO') || h.includes('UF DESTINATARIO')) return 'ufDestinatario';
-    if (h.includes('INDICADOR IE DESTINATÁRIO') || h.includes('INDICADOR IE DESTINATARIO')) return 'indicadorIeDestinatario';
+    // Emitente
+    { key: 'cpfCnpjEmitente', keywords: ['EMITENTE'], require: ['CPF', 'CNPJ'] },
+    { key: 'razaoSocialEmitente', keywords: ['EMITENTE'], require: ['RAZAO SOCIAL', 'NOME'] },
+    { key: 'inscricaoEstadualEmitente', keywords: ['EMITENTE'], require: ['INSCRICAO ESTADUAL', 'IE'] },
+    { key: 'ufEmitente', keywords: ['EMITENTE'], require: ['UF'] },
+    { key: 'municipioEmitente', keywords: ['EMITENTE'], require: ['MUNICIPIO'] },
 
-    if (h.includes('DESTINO DA OPERAÇÃO') || h.includes('DESTINO DA OPERACAO')) return 'destinoOperacao';
-    if (h === 'CONSUMIDOR FINAL') return 'consumidorFinal';
-    if (h.includes('PRESENÇA DO COMPRADOR') || h.includes('PRESENCA DO COMPRADOR')) return 'presencaComprador';
+    // Destinatário
+    { key: 'cnpjDestinatario', keywords: ['DESTINATARIO'], require: ['CNPJ', 'CPF'] },
+    { key: 'nomeDestinatario', keywords: ['DESTINATARIO'], require: ['NOME', 'RAZAO SOCIAL'] },
+    { key: 'ufDestinatario', keywords: ['DESTINATARIO'], require: ['UF'] },
+    { key: 'indicadorIeDestinatario', keywords: ['DESTINATARIO'], require: ['INDICADOR', 'IE'] },
 
-    return null;
+    // Operação e Consumidor
+    { key: 'destinoOperacao', keywords: ['DESTINO DA OPERACAO', 'DESTINO OPERACAO'] },
+    { key: 'consumidorFinal', matchExact: ['CONSUMIDOR FINAL'] },
+    { key: 'presencaComprador', keywords: ['PRESENCA DO COMPRADOR', 'PRESENCA COMPRADOR'] },
+];
+
+const NOTA_FISCAL_MAIN_RULES: HeaderRule[] = [
+    { key: 'dataHoraEventoMaisRecente', keywords: ['EVENTO MAIS RECENTE'], require: ['DATA', 'HORA'] },
+    { key: 'eventoMaisRecente', keywords: ['EVENTO MAIS RECENTE'] },
+    { key: 'valorNotaFiscal', keywords: ['VALOR NOTA FISCAL', 'VALOR TOTAL NOTA'] },
+];
+
+const NOTA_FISCAL_EVENTO_RULES: HeaderRule[] = [
+    { key: 'dataHoraEvento', keywords: ['EVENTO'], require: ['DATA'] },
+    { key: 'descricaoEvento', keywords: ['EVENTO'], require: ['DESCRICAO'] },
+    { key: 'motivoEvento', keywords: ['EVENTO'], require: ['MOTIVO'] },
+    { key: 'evento', matchExact: ['EVENTO'] },
+];
+
+const NOTA_FISCAL_ITEM_RULES: HeaderRule[] = [
+    { key: 'numeroProduto', keywords: ['PRODUTO'], require: ['NUMERO'] },
+    { key: 'descricaoProdutoServico', keywords: ['PRODUTO', 'SERVICO'], require: ['DESCRICAO'] },
+    { key: 'codigoNcmSh', keywords: ['NCM', 'SH'], require: ['CODIGO'] },
+    { key: 'ncmShTipoProduto', keywords: ['NCM', 'SH', 'TIPO DE PRODUTO'] },
+    { key: 'cfop', matchExact: ['CFOP'] },
+    { key: 'quantidade', matchExact: ['QUANTIDADE'] },
+    { key: 'unidade', matchExact: ['UNIDADE'] },
+    { key: 'valorUnitario', keywords: ['VALOR UNITARIO'] },
+    { key: 'valorTotal', keywords: ['VALOR TOTAL'] },
+];
+
+// Helper genérico para combinar regras específicas + comuns de Notas Fiscais
+function resolveNotaFiscalHeaderKey(header: string, specificRules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    // 1. Tenta casar nas regras específicas da tabela atual
+    for (const rule of specificRules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    // 2. Se não casou, tenta as regras comuns de Nota Fiscal
+    for (const rule of COMMON_NOTA_FISCAL_RULES) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
 }
 
 async function processNotaFiscalStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
@@ -157,20 +226,12 @@ async function processNotaFiscalStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-
-                if (h.includes('DATA/HORA EVENTO MAIS RECENTE')) return 'dataHoraEventoMaisRecente';
-                if (h.includes('EVENTO MAIS RECENTE')) return 'eventoMaisRecente';
-                if (h.includes('VALOR NOTA FISCAL')) return 'valorNotaFiscal';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveNotaFiscalHeaderKey(header, NOTA_FISCAL_MAIN_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -188,10 +249,10 @@ async function processNotaFiscalStream(stream: NodeJS.ReadableStream, metadata: 
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Nota Fiscal concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Nota Fiscal');
         throw error;
     }
 }
@@ -202,21 +263,12 @@ async function processNotaFiscalEventoStream(stream: NodeJS.ReadableStream, meta
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-
-                if (h === 'EVENTO') return 'evento';
-                if (h.includes('DATA/HORA EVENTO')) return 'dataHoraEvento';
-                if (h.includes('DESCRIÇÃO EVENTO') || h.includes('DESCRICAO EVENTO')) return 'descricaoEvento';
-                if (h.includes('MOTIVO EVENTO')) return 'motivoEvento';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveNotaFiscalHeaderKey(header, NOTA_FISCAL_EVENTO_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -234,10 +286,10 @@ async function processNotaFiscalEventoStream(stream: NodeJS.ReadableStream, meta
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Eventos da Nota Fiscal concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Eventos da Nota Fiscal');
         throw error;
     }
 }
@@ -248,26 +300,12 @@ async function processNotaFiscalItemStream(stream: NodeJS.ReadableStream, metada
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-
-                if (h.includes('NÚMERO PRODUTO') || h.includes('NUMERO PRODUTO')) return 'numeroProduto';
-                if (h.includes('DESCRIÇÃO DO PRODUTO/SERVIÇO') || h.includes('DESCRICAO DO PRODUTO/SERVICO') || h.includes('DESCRIÇÃO DO PRODUTO')) return 'descricaoProdutoServico';
-                if (h.includes('CÓDIGO NCM/SH') || h.includes('CODIGO NCM/SH')) return 'codigoNcmSh';
-                if (h.includes('NCM/SH (TIPO DE PRODUTO)') || h === 'NCM/SH') return 'ncmShTipoProduto';
-                if (h === 'CFOP') return 'cfop';
-                if (h === 'QUANTIDADE') return 'quantidade';
-                if (h === 'UNIDADE') return 'unidade';
-                if (h.includes('VALOR UNITÁRIO') || h.includes('VALOR UNITARIO')) return 'valorUnitario';
-                if (h.includes('VALOR TOTAL')) return 'valorTotal';
-
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveNotaFiscalHeaderKey(header, NOTA_FISCAL_ITEM_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -285,10 +323,10 @@ async function processNotaFiscalItemStream(stream: NodeJS.ReadableStream, metada
             totalProcessed += batch.length;
         }
 
-        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento concluído');
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Itens da Nota Fiscal concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Itens da Nota Fiscal');
         throw error;
     }
 }

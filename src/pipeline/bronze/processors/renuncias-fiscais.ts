@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
 import csvParser from 'csv-parser';
+
+import iconv from 'iconv-lite';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
 import { bronze_db } from '../../../database/bronze_connection.js';
@@ -11,7 +13,7 @@ import {
     EmpresasImunesOuIsentas,
     EmpresasHabilitadas
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 const BATCH_SIZE = 2000;
@@ -61,8 +63,7 @@ async function persistRenunciasFiscaisPorBeneficiario(data: (typeof RenunciasFis
                 cnae: sql`values(${RenunciasFiscaisPorBeneficiario.cnae})`,
                 municipio: sql`values(${RenunciasFiscaisPorBeneficiario.municipio})`,
                 uf: sql`values(${RenunciasFiscaisPorBeneficiario.uf})`,
-                tipoEntidade: sql`values(${RenunciasFiscaisPorBeneficiario.tipoEntidade})`,
-                beneficioFiscal: sql`values(${RenunciasFiscaisPorBeneficiario.beneficioFiscal})`,
+                valorRenunciaFiscal: sql`values(${RenunciasFiscaisPorBeneficiario.valorRenunciaFiscal})`,
                 exercicioReferencia: sql`values(${RenunciasFiscaisPorBeneficiario.exercicioReferencia})`,
                 mesReferencia: sql`values(${RenunciasFiscaisPorBeneficiario.mesReferencia})`,
                 diaReferencia: sql`values(${RenunciasFiscaisPorBeneficiario.diaReferencia})`,
@@ -88,11 +89,8 @@ async function persistEmpresasImunesOuIsentas(data: (typeof EmpresasImunesOuIsen
                 cnae: sql`values(${EmpresasImunesOuIsentas.cnae})`,
                 municipio: sql`values(${EmpresasImunesOuIsentas.municipio})`,
                 uf: sql`values(${EmpresasImunesOuIsentas.uf})`,
+                tipoEntidade: sql`values(${EmpresasImunesOuIsentas.tipoEntidade})`,
                 beneficioFiscal: sql`values(${EmpresasImunesOuIsentas.beneficioFiscal})`,
-                baseLegal: sql`values(${EmpresasImunesOuIsentas.baseLegal})`,
-                descricao: sql`values(${EmpresasImunesOuIsentas.descricao})`,
-                inicioHabilitacao: sql`values(${EmpresasImunesOuIsentas.inicioHabilitacao})`,
-                fimHabilitacao: sql`values(${EmpresasImunesOuIsentas.fimHabilitacao})`,
                 exercicioReferencia: sql`values(${EmpresasImunesOuIsentas.exercicioReferencia})`,
                 mesReferencia: sql`values(${EmpresasImunesOuIsentas.mesReferencia})`,
                 diaReferencia: sql`values(${EmpresasImunesOuIsentas.diaReferencia})`,
@@ -110,7 +108,6 @@ async function persistEmpresasHabilitadas(data: (typeof EmpresasHabilitadas.$inf
     try {
         await bronze_db.insert(EmpresasHabilitadas).values(data).onDuplicateKeyUpdate({
             set: {
-                anoCalendario: sql`values(${EmpresasHabilitadas.anoCalendario})`,
                 cnpj: sql`values(${EmpresasHabilitadas.cnpj})`,
                 razaoSocial: sql`values(${EmpresasHabilitadas.razaoSocial})`,
                 nomeFantasia: sql`values(${EmpresasHabilitadas.nomeFantasia})`,
@@ -118,8 +115,11 @@ async function persistEmpresasHabilitadas(data: (typeof EmpresasHabilitadas.$inf
                 cnae: sql`values(${EmpresasHabilitadas.cnae})`,
                 municipio: sql`values(${EmpresasHabilitadas.municipio})`,
                 uf: sql`values(${EmpresasHabilitadas.uf})`,
-                tipoRenuncia: sql`values(${EmpresasHabilitadas.tipoRenuncia})`,
-                valorRenunciaFiscal: sql`values(${EmpresasHabilitadas.valorRenunciaFiscal})`,
+                beneficioFiscal: sql`values(${EmpresasHabilitadas.beneficioFiscal})`,
+                baseLegal: sql`values(${EmpresasHabilitadas.baseLegal})`,
+                descricao: sql`values(${EmpresasHabilitadas.descricao})`,
+                inicioHabilitacao: sql`values(${EmpresasHabilitadas.inicioHabilitacao})`,
+                fimHabilitacao: sql`values(${EmpresasHabilitadas.fimHabilitacao})`,
                 exercicioReferencia: sql`values(${EmpresasHabilitadas.exercicioReferencia})`,
                 mesReferencia: sql`values(${EmpresasHabilitadas.mesReferencia})`,
                 diaReferencia: sql`values(${EmpresasHabilitadas.diaReferencia})`,
@@ -132,21 +132,84 @@ async function persistEmpresasHabilitadas(data: (typeof EmpresasHabilitadas.$inf
     }
 }
 
-function mapCommonHeaders(h: string): string | null {
-    if (h.includes('ANO-CALENDÁRIO') || h.includes('ANO-CALENDARIO') || h.includes('ANO CALENDÁRIO') || h.includes('ANO CALENDARIO')) return 'anoCalendario';
-    if (h === 'CNPJ') return 'cnpj';
-    if (h.includes('RAZÃO SOCIAL') || h.includes('RAZAO SOCIAL')) return 'razaoSocial';
-    if (h.includes('NOME FANTASIA')) return 'nomeFantasia';
-    if (h.includes('CÓDIGO CNAE') || h.includes('CODIGO CNAE')) return 'codigoCnae';
-    if (h === 'CNAE') return 'cnae';
-    if (h === 'MUNICÍPIO' || h === 'MUNICIPIO') return 'municipio';
-    if (h === 'UF' || h.includes('UF ')) return 'uf';
-    if (h.includes('BENEFÍCIO FISCAL') || h.includes('BENEFICIO FISCAL')) return 'beneficioFiscal';
-    if (h.includes('TIPO RENÚNCIA') || h.includes('TIPO RENUNCIA')) return 'tipoRenuncia';
-    if (h === 'DESCRIÇÃO' || h === 'DESCRICAO') return 'descricao';
-    if (h.includes('VALOR RENÚNCIA FISCAL') || h.includes('VALOR RENUNCIA FISCAL')) return 'valorRenunciaFiscal';
-    return null;
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
 }
+
+const COMMON_RENUNCIAS_RULES: HeaderRule[] = [
+    { key: 'anoCalendario', keywords: ['ANO CALENDARIO', 'ANO-CALENDARIO', 'ANOCALENDARIO'] },
+    { key: 'cnpj', matchExact: ['CNPJ'] },
+    { key: 'razaoSocial', keywords: ['RAZAO SOCIAL'] },
+    { key: 'nomeFantasia', keywords: ['NOME FANTASIA'] },
+    { key: 'codigoCnae', keywords: ['CODIGO CNAE', 'CNAE'], require: ['CODIGO'] },
+    { key: 'cnae', matchExact: ['CNAE', 'NOME CNAE'] },
+    { key: 'municipio', matchExact: ['MUNICIPIO'] },
+    { key: 'uf', matchExact: ['UF'] },
+    { key: 'beneficioFiscal', keywords: ['BENEFICIO FISCAL'] },
+    { key: 'valorRenunciaFiscal', keywords: ['VALOR RENUNCIA FISCAL', 'VALOR RENUNCIA'] },
+];
+
+const RENUNCIAS_FISCAIS_RULES: HeaderRule[] = [
+    { key: 'tipoRenuncia', keywords: ['TIPO RENUNCIA', 'TIPO DE RENUNCIA'] },
+    { key: 'fundamentoLegal', keywords: ['FUNDAMENTO LEGAL'] },
+    { key: 'descricao', matchExact: ['DESCRICAO'] },
+    { key: 'tributo', matchExact: ['TRIBUTO'] },
+    { key: 'formaTributacao', keywords: ['FORMA DE TRIBUTACAO', 'FORMA TRIBUTACAO'] },
+];
+
+const RENUNCIAS_BENEFICIARIO_RULES: HeaderRule[] = [];
+
+const EMPRESAS_IMUNES_ISENTAS_RULES: HeaderRule[] = [
+    { key: 'tipoEntidade', keywords: ['TIPO ENTIDADE', 'TIPO DE ENTIDADE'] },
+];
+
+const EMPRESAS_HABILITADAS_RULES: HeaderRule[] = [
+    { key: 'baseLegal', keywords: ['BASE LEGAL'] },
+    { key: 'descricao', matchExact: ['DESCRICAO'] },
+    { key: 'inicioHabilitacao', keywords: ['INICIO DA HABILITACAO', 'INICIO HABILITACAO'] },
+    { key: 'fimHabilitacao', keywords: ['FIM DA HABILITACAO', 'FIM HABILITACAO'] },
+];
+
+// Helper genérico para buscar regras específicas + comuns do módulo
+function resolveRenunciasHeaderKey(header: string, specificRules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    // 1. Tenta casar nas regras específicas da sub-tabela
+    for (const rule of specificRules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    // 2. Se não casou, tenta as regras comuns
+    for (const rule of COMMON_RENUNCIAS_RULES) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
+// ---------------------------------------------------------------------------
+// 2. Processadores de Stream
+// ---------------------------------------------------------------------------
 
 async function processRenunciasFiscaisStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processRenunciasFiscaisStream');
@@ -154,19 +217,12 @@ async function processRenunciasFiscaisStream(stream: NodeJS.ReadableStream, meta
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-
-                if (h.includes('FUNDAMENTO LEGAL')) return 'fundamentoLegal';
-                if (h === 'TRIBUTO') return 'tributo';
-                if (h.includes('FORMA DE TRIBUTAÇÃO') || h.includes('FORMA DE TRIBUTACAO')) return 'formaTributacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveRenunciasHeaderKey(header, RENUNCIAS_FISCAIS_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -183,9 +239,11 @@ async function processRenunciasFiscaisStream(stream: NodeJS.ReadableStream, meta
             await persistRenunciasFiscais(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Renúncias Fiscais concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Renúncias Fiscais');
         throw error;
     }
 }
@@ -196,17 +254,12 @@ async function processRenunciasFiscaisPorBeneficiarioStream(stream: NodeJS.Reada
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-
-                if (h.includes('TIPO ENTIDADE')) return 'tipoEntidade';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveRenunciasHeaderKey(header, RENUNCIAS_BENEFICIARIO_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -223,9 +276,11 @@ async function processRenunciasFiscaisPorBeneficiarioStream(stream: NodeJS.Reada
             await persistRenunciasFiscaisPorBeneficiario(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Renúncias Fiscais por Beneficiário concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Renúncias Fiscais por Beneficiário');
         throw error;
     }
 }
@@ -236,19 +291,12 @@ async function processEmpresasImunesOuIsentasStream(stream: NodeJS.ReadableStrea
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-
-                if (h.includes('BASE LEGAL')) return 'baseLegal';
-                if (h.includes('INÍCIO DA HABILITAÇÃO') || h.includes('INICIO DA HABILITACAO') || h.includes('INÍCIO HABILITAÇÃO') || h.includes('INICIO HABILITACAO')) return 'inicioHabilitacao';
-                if (h.includes('FIM DA HABILITAÇÃO') || h.includes('FIM DA HABILITACAO') || h.includes('FIM HABILITAÇÃO') || h.includes('FIM HABILITACAO')) return 'fimHabilitacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveRenunciasHeaderKey(header, EMPRESAS_IMUNES_ISENTAS_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -265,9 +313,11 @@ async function processEmpresasImunesOuIsentasStream(stream: NodeJS.ReadableStrea
             await persistEmpresasImunesOuIsentas(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Empresas Imunes ou Isentas concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Empresas Imunes ou Isentas');
         throw error;
     }
 }
@@ -278,15 +328,12 @@ async function processEmpresasHabilitadasStream(stream: NodeJS.ReadableStream, m
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                const common = mapCommonHeaders(h);
-                if (common) return common;
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveRenunciasHeaderKey(header, EMPRESAS_HABILITADAS_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -303,9 +350,11 @@ async function processEmpresasHabilitadasStream(stream: NodeJS.ReadableStream, m
             await persistEmpresasHabilitadas(batch);
             totalProcessed += batch.length;
         }
+
+        log.info({ data: { rowsProcessed: totalProcessed } }, 'Processamento de Empresas Habilitadas concluído');
         return totalProcessed;
     } catch (error) {
-        log.error({ data: error }, 'Erro ao processar stream');
+        log.error({ data: error }, 'Erro ao processar stream de Empresas Habilitadas');
         throw error;
     }
 }

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yauzl from 'yauzl';
+import iconv from 'iconv-lite';
 import csvParser from 'csv-parser';
 import { sql } from 'drizzle-orm';
 import { new_logger } from '../../../services/logs.js';
@@ -11,7 +12,7 @@ import {
     ContratosTermoAditivo,
     ContratosApostilamento
 } from '../../../database/bronze_schema.js';
-import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata } from '../shared.js';
+import { ZIP_FILES_DIRECTORY, extractMetadataFromFileName, ReferenceMetadata, normalize } from '../shared.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -140,43 +141,123 @@ async function persistApostilamento(data: (typeof ContratosApostilamento.$inferI
     }
 }
 
+interface HeaderRule {
+    key: string;
+    keywords?: string[];
+    matchExact?: string[];
+    require?: string[];
+}
+
+// Regras Comuns do Módulo de Contratos
+const COMMON_CONTRATOS_RULES: HeaderRule[] = [
+    { key: 'numeroContrato', keywords: ['CONTRATO'], require: ['NUMERO'] },
+    
+    // Órgãos (Superior antes do Genérico)
+    { key: 'codigoOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['CODIGO'] },
+    { key: 'nomeOrgaoSuperior', keywords: ['ORGAO SUPERIOR'], require: ['NOME'] },
+    { key: 'codigoOrgao', keywords: ['ORGAO'], require: ['CODIGO'] },
+    { key: 'nomeOrgao', keywords: ['ORGAO'], require: ['NOME'] },
+    
+    // Unidade Gestora
+    { key: 'codigoUg', keywords: ['UG'], require: ['CODIGO'] },
+    { key: 'nomeUg', keywords: ['UG'], require: ['NOME'] },
+];
+
+const COMPRAS_MAIN_RULES: HeaderRule[] = [
+    { key: 'codigoModalidadeCompraLicitacao', keywords: ['MODALIDADE COMPRA LICITACAO'], require: ['CODIGO'] },
+    { key: 'modalidadeCompraLicitacao', keywords: ['MODALIDADE COMPRA LICITACAO'] },
+    { key: 'objeto', matchExact: ['OBJETO', 'OBJETO DO CONTRATO'] },
+    { key: 'fundamentoLegal', keywords: ['FUNDAMENTO LEGAL'] },
+    { key: 'modalidadeCompra', keywords: ['MODALIDADE COMPRA', 'MODALIDADE DE COMPRA'] },
+    { key: 'situacaoContrato', keywords: ['SITUACAO CONTRATO', 'SITUACAO DO CONTRATO'] },
+    
+    // Datas
+    { key: 'dataAssinaturaContrato', keywords: ['ASSINATURA CONTRATO'] },
+    { key: 'dataPublicacaoDou', keywords: ['PUBLICACAO DOU'] },
+    { key: 'dataInicioVigencia', keywords: ['INICIO VIGENCIA', 'INICIO DA VIGENCIA'] },
+    { key: 'dataFimVigencia', keywords: ['FIM VIGENCIA', 'FIM DA VIGENCIA'] },
+    
+    // Contratado
+    { key: 'codigoContratado', keywords: ['CONTRATADO'], require: ['CODIGO'] },
+    { key: 'nomeContratado', keywords: ['CONTRATADO'], require: ['NOME'] },
+    
+    // Valores
+    { key: 'valorInicialCompra', keywords: ['VALOR INICIAL'] },
+    { key: 'valorFinalCompra', keywords: ['VALOR FINAL'] },
+    
+    // Dados da Licitação associada
+    { key: 'numeroLicitacao', keywords: ['LICITACAO'], require: ['NUMERO'] },
+    { key: 'codigoUgLicitacao', keywords: ['UG LICITACAO'], require: ['CODIGO'] },
+    { key: 'nomeUgLicitacao', keywords: ['UG LICITACAO'], require: ['NOME'] },
+];
+
+const ITEM_COMPRA_RULES: HeaderRule[] = [
+    { key: 'codigoItemCompra', keywords: ['ITEM COMPRA', 'ITEM DE COMPRA'], require: ['CODIGO'] },
+    { key: 'descricaoItemCompra', keywords: ['ITEM COMPRA', 'ITEM DE COMPRA'], require: ['DESCRICAO'] },
+    { key: 'quantidadeItem', keywords: ['QUANTIDADE ITEM', 'QUANTIDADE'] },
+    { key: 'valorItem', keywords: ['VALOR ITEM', 'VALOR DO ITEM'] },
+];
+
+const TERMO_ADITIVO_RULES: HeaderRule[] = [
+    { key: 'numeroTermoAditivo', keywords: ['TERMO ADITIVO'], require: ['NUMERO'] },
+    { key: 'dataPublicacao', keywords: ['DATA PUBLICACAO', 'PUBLICACAO'] },
+    { key: 'objeto', matchExact: ['OBJETO', 'OBJETO ADITIVO'] },
+];
+
+const APOSTILAMENTO_RULES: HeaderRule[] = [
+    { key: 'numeroApostilamento', keywords: ['APOSTILAMENTO'], require: ['NUMERO'] },
+    { key: 'descricao', matchExact: ['DESCRICAO', 'DESCRICAO APOSTILAMENTO'] },
+    { key: 'valorApostilamento', keywords: ['VALOR APOSTILAMENTO', 'VALOR'] },
+    { key: 'dataInclusao', keywords: ['INCLUSAO', 'DATA DE INCLUSAO'] },
+    { key: 'situacaoApostilamento', keywords: ['SITUACAO APOSTILAMENTO', 'SITUACAO'] },
+];
+
+// Helper genérico para buscar nas regras específicas + comuns de Contratos
+function resolveContratosHeaderKey(header: string, specificRules: HeaderRule[]): string {
+    if (!header) return '';
+    const cleanHeader = normalize(header);
+
+    // 1. Tenta casar primeiro nas regras específicas da sub-tabela
+    for (const rule of specificRules) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    // 2. Se não casou, tenta as regras comuns de Contratos
+    for (const rule of COMMON_CONTRATOS_RULES) {
+        if (rule.matchExact && rule.matchExact.includes(cleanHeader)) return rule.key;
+        const hasKeyword = rule.keywords && rule.keywords.some(kw => cleanHeader.includes(kw));
+        if (hasKeyword) {
+            if (rule.require) {
+                if (rule.require.some(req => cleanHeader.includes(req))) return rule.key;
+            } else {
+                return rule.key;
+            }
+        }
+    }
+
+    return cleanHeader;
+}
+
 async function processComprasStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
     const log = logger.forMethod('processComprasStream');
     let batch: (typeof ContratosCompras.$inferInsert)[] = [];
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO DO CONTRATO') || h.includes('NUMERO DO CONTRATO')) return 'numeroContrato';
-                if (h === 'OBJETO') return 'objeto';
-                if (h.includes('FUNDAMENTO LEGAL')) return 'fundamentoLegal';
-                if (h === 'MODALIDADE DE COMPRA' || h === 'MODALIDADE COMPRA') return 'modalidadeCompra';
-                if (h.includes('SITUAÇÃO CONTRATO') || h.includes('SITUACAO CONTRATO')) return 'situacaoContrato';
-                if (h.includes('CÓDIGO DO ÓRGÃO SUPERIOR') || h.includes('CODIGO DO ORGAO SUPERIOR') || h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h === 'CÓDIGO UG' || h === 'CODIGO UG') return 'codigoUg';
-                if (h === 'NOME UG') return 'nomeUg';
-                if (h.includes('DATA ASSINATURA CONTRATO')) return 'dataAssinaturaContrato';
-                if (h.includes('DATA PUBLICAÇÃO DOU') || h.includes('DATA PUBLICACAO DOU')) return 'dataPublicacaoDou';
-                if (h.includes('DATA INÍCIO DA VIGÊNCIA') || h.includes('DATA INICIO DA VIGENCIA') || h.includes('DATA INÍCIO VIGÊNCIA')) return 'dataInicioVigencia';
-                if (h.includes('DATA FIM DA VIGÊNCIA') || h.includes('DATA FIM DA VIGENCIA') || h.includes('DATA FIM VIGÊNCIA')) return 'dataFimVigencia';
-                if (h.includes('CÓDIGO CONTRATADO') || h.includes('CODIGO CONTRATADO')) return 'codigoContratado';
-                if (h.includes('NOME CONTRATADO')) return 'nomeContratado';
-                if (h.includes('VALOR INICIAL DA COMPRA')) return 'valorInicialCompra';
-                if (h.includes('VALOR FINAL DA COMPRA')) return 'valorFinalCompra';
-                if (h.includes('NÚMERO DA LICITAÇÃO') || h.includes('NUMERO DA LICITACAO') || h.includes('NÚMERO LICITAÇÃO') || h.includes('NUMERO LICITACAO')) return 'numeroLicitacao';
-                if (h.includes('CÓDIGO UG LICITAÇÃO') || h.includes('CODIGO UG LICITACAO')) return 'codigoUgLicitacao';
-                if (h.includes('NOME UG LICITAÇÃO') || h.includes('NOME UG LICITACAO')) return 'nomeUgLicitacao';
-                if (h.includes('CÓDIGO MODALIDADE COMPRA LICITAÇÃO') || h.includes('CODIGO MODALIDADE COMPRA LICITACAO')) return 'codigoModalidadeCompraLicitacao';
-                if (h.includes('MODALIDADE COMPRA LICITAÇÃO') || h.includes('MODALIDADE COMPRA LICITACAO')) return 'modalidadeCompraLicitacao';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveContratosHeaderKey(header, COMPRAS_MAIN_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -206,22 +287,12 @@ async function processItemCompraStream(stream: NodeJS.ReadableStream, metadata: 
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO CONTRATO') || h.includes('NUMERO CONTRATO') || h.includes('NÚMERO DO CONTRATO')) return 'numeroContrato';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h === 'CÓDIGO UG' || h === 'CODIGO UG') return 'codigoUg';
-                if (h === 'NOME UG') return 'nomeUg';
-                if (h.includes('CÓDIGO ITEM COMPRA') || h.includes('CODIGO ITEM COMPRA')) return 'codigoItemCompra';
-                if (h.includes('DESCRIÇÃO ITEM COMPRA') || h.includes('DESCRICAO ITEM COMPRA')) return 'descricaoItemCompra';
-                if (h.includes('QUANTIDADE ITEM')) return 'quantidadeItem';
-                if (h.includes('VALOR ITEM')) return 'valorItem';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveContratosHeaderKey(header, ITEM_COMPRA_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -251,23 +322,12 @@ async function processTermoAditivoStream(stream: NodeJS.ReadableStream, metadata
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO CONTRATO') || h.includes('NUMERO CONTRATO') || h.includes('NÚMERO DO CONTRATO')) return 'numeroContrato';
-                if (h.includes('CÓDIGO DO ÓRGÃO SUPERIOR') || h.includes('CODIGO DO ORGAO SUPERIOR') || h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h === 'CÓDIGO UG' || h === 'CODIGO UG') return 'codigoUg';
-                if (h === 'NOME UG') return 'nomeUg';
-                if (h.includes('NÚMERO TERMO ADITIVO') || h.includes('NUMERO TERMO ADITIVO')) return 'numeroTermoAditivo';
-                if (h.includes('DATA PUBLICAÇÃO') || h.includes('DATA PUBLICACAO')) return 'dataPublicacao';
-                if (h === 'OBJETO') return 'objeto';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveContratosHeaderKey(header, TERMO_ADITIVO_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
@@ -297,25 +357,12 @@ async function processApostilamentoStream(stream: NodeJS.ReadableStream, metadat
     let totalProcessed = 0;
 
     try {
-        const parser = stream.pipe(csvParser({
-            separator: ';',
-            mapHeaders: ({ header }) => {
-                const h = header.toUpperCase().trim();
-                if (h.includes('NÚMERO CONTRATO') || h.includes('NUMERO CONTRATO') || h.includes('NÚMERO DO CONTRATO')) return 'numeroContrato';
-                if (h.includes('CÓDIGO DO ÓRGÃO SUPERIOR') || h.includes('CODIGO DO ORGAO SUPERIOR') || h.includes('CÓDIGO ÓRGÃO SUPERIOR') || h.includes('CODIGO ORGAO SUPERIOR')) return 'codigoOrgaoSuperior';
-                if (h.includes('NOME ÓRGÃO SUPERIOR') || h.includes('NOME ORGAO SUPERIOR')) return 'nomeOrgaoSuperior';
-                if (h.includes('CÓDIGO ÓRGÃO') || h.includes('CODIGO ORGAO')) return 'codigoOrgao';
-                if (h.includes('NOME ÓRGÃO') || h.includes('NOME ORGAO')) return 'nomeOrgao';
-                if (h === 'CÓDIGO UG' || h === 'CODIGO UG') return 'codigoUg';
-                if (h === 'NOME UG') return 'nomeUg';
-                if (h.includes('NÚMERO APOSTILAMENTO') || h.includes('NUMERO APOSTILAMENTO')) return 'numeroApostilamento';
-                if (h === 'DESCRIÇÃO' || h === 'DESCRICAO') return 'descricao';
-                if (h.includes('VALOR APOSTILAMENTO')) return 'valorApostilamento';
-                if (h.includes('DATA DE INCLUSÃO') || h.includes('DATA DE INCLUSAO') || h.includes('DATA INCLUSÃO')) return 'dataInclusao';
-                if (h.includes('SITUAÇÃO APOSTILAMENTO') || h.includes('SITUACAO APOSTILAMENTO')) return 'situacaoApostilamento';
-                return h;
-            },
-        }));
+        const parser = stream
+            .pipe(iconv.decodeStream('iso-8859-1'))
+            .pipe(csvParser({
+                separator: ';',
+                mapHeaders: ({ header }) => resolveContratosHeaderKey(header, APOSTILAMENTO_RULES),
+            }));
 
         for await (const data of parser) {
             batch.push({
