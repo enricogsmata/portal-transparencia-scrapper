@@ -1,7 +1,6 @@
 // src\pipeline\silver\transformers.orchestrator.ts
 import { new_logger } from '../../services/logs.js';
 import { processAcordosLeniencia } from './transformers/acordos-leniencia.js';
-import { processApoiamentosEmendas } from './transformers/apoiamento-emendas-parlamentares-documentos.js';
 import { processFavorecidosPj } from './transformers/favorecidos-pj.js';
 
 const logger = new_logger(import.meta.url);
@@ -17,7 +16,6 @@ export async function runSilverOrchestrator() {
   const tasks: TransformerTask[] = [
     { name: 'favorecidos-pj', execute: processFavorecidosPj },
     { name: 'acordos-leniencia', execute: processAcordosLeniencia },
-    { name: 'apoiamento-emendas-parlamentares-documentos', execute: processApoiamentosEmendas },
   ];
 
   log.info({ data: { totalTasks: tasks.length } }, 'Iniciando orquestração da camada Silver');

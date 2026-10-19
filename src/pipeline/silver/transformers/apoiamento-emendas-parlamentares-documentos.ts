@@ -8,11 +8,12 @@ import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
 
-export async function processApoiamentosEmendas() {
-  const log = logger.forMethod('processApoiamentosEmendas');
+export async function processApoiamentosEmendasParlamentares() {
+  const log = logger.forMethod('processApoiamentosEmendasParlamentares');
   const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
+  const processedEmendas = new Set<number>();
 
   log.info('Iniciando processamento de Apoiamentos a Emendas Parlamentares');
 
@@ -42,10 +43,7 @@ export async function processApoiamentosEmendas() {
       const emendaIdMap = new Map(emendasDb.map((e) => [e.codigoEmenda, e.id]));
 
       // 3. Recuperação de Chaves Estrangeiras (Pessoas Físicas / Apoiadores)
-      const cpfsApoiadores = [...new Set(bronzeData
-        .map((b) => b.codigoApoiador ? b.codigoApoiador.replace(/\D/g, '').padStart(11, '0') : null)
-        .filter(Boolean) as string[])];
-        
+      const cpfsApoiadores = [...new Set(bronzeData.map((b) => b.codigoApoiador).filter(Boolean) as string[])];
       const pessoasFisicasDb = cpfsApoiadores.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
             .from(pessoasFisicas)
@@ -58,11 +56,9 @@ export async function processApoiamentosEmendas() {
         .map((b) => {
           const emendaId = b.codigoEmenda ? emendaIdMap.get(b.codigoEmenda) : null;
           
-          // O Apoiamento depende rigidamente da Emenda para existir
           if (!emendaId || !b.apoiador || !b.dataApoio) return null;
 
-          const cpfLimpo = b.codigoApoiador ? b.codigoApoiador.replace(/\D/g, '').padStart(11, '0') : null;
-          const apoiadorPfId = cpfLimpo ? pfIdMap.get(cpfLimpo) : null;
+          const apoiadorPfId = b.codigoApoiador ? pfIdMap.get(b.codigoApoiador) : null;
 
           return {
             emendaId,
@@ -78,10 +74,17 @@ export async function processApoiamentosEmendas() {
         .filter(Boolean) as typeof emendasApoiamentos.$inferInsert[];
 
       if (apoiamentosToInsert.length > 0) {
-        // Idempotência baseada na dependência forte da FK da Emenda na carga atual
+        // Idempotência segura através do rastreamento global de emendas afetadas nesta execução
         const silverEmendasIds = [...new Set(apoiamentosToInsert.map((a) => a.emendaId))];
-        await silver_db.delete(emendasApoiamentos)
-          .where(inArray(emendasApoiamentos.emendaId, silverEmendasIds));
+        const emendasToDelete = silverEmendasIds.filter(id => !processedEmendas.has(id));
+        
+        if (emendasToDelete.length > 0) {
+          log.info({ data: { count: emendasToDelete.length } }, 'Limpando apoiamentos antigos da(s) emenda(s) alvo para garantir idempotência do lote');
+          await silver_db.delete(emendasApoiamentos)
+            .where(inArray(emendasApoiamentos.emendaId, emendasToDelete));
+          
+          emendasToDelete.forEach(id => processedEmendas.add(id));
+        }
 
         log.info({ data: { count: apoiamentosToInsert.length } }, 'Realizando insert na entidade emendas_apoiamentos');
         for (let i = 0; i < apoiamentosToInsert.length; i += 1000) {
