@@ -80,15 +80,14 @@ async function main() {
 
     const rawOptions = program.opts<CliOptions>();
 
-    // Se nenhuma flag foi passada no terminal, entra no modo interativo
-    const noFlagsPassed = Object.keys(rawOptions).length === 0;
+    // Verifica se alguma flag foi passada como true via terminal
+    const hasFlagsPassed = Object.values(rawOptions).some((val) => val === true);
 
-    const options: CliOptions = noFlagsPassed
+    const options: CliOptions = !hasFlagsPassed
         ? await runInteractiveMenu()
         : rawOptions;
 
     await executePipeline(options);
-    return;
 }
 
 main();

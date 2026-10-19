@@ -1,0 +1,981 @@
+{
+  "modules": [
+    {
+      "module": "acordos-leniencia",
+      "description": "Acordos de Leniência firmados com pessoas jurídicas e seus efeitos sancionatórios",
+      "bronzeTables": [
+        "acordos_leniencia",
+        "acordos_leniencia_efeitos"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_juridicas",
+          "estados",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "acordos_leniencia",
+          "acordo_leniencia_efeitos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Atomicidade de datas de início e conclusão e padronização de CNPJ desformatado.",
+        "2FN": "Efeitos do acordo dependem unicamente da chave primária do acordo via FK acordo_id.",
+        "3FN": "Razão social, nome fantasia e UF da empresa sancionada migrados para a dimensão pessoas_juridicas."
+      }
+    },
+    {
+      "module": "apoiamento-emendas-parlamentares-documentos",
+      "description": "Apoiamentos e coautorias de parlamentares a emendas e documentos orçamentários",
+      "bronzeTables": [
+        "apoiamentos_emendas_parlamentares"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "emendas_parlamentares",
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "unidades_gestoras",
+          "acoes_orcamentarias"
+        ],
+        "entities": [
+          "emendas_apoiamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Conversão de valores empenhados, cancelados e pagos para decimal(18,2).",
+        "2FN": "Apoiamento depende da emenda mestre e do parlamentar apoiador.",
+        "3FN": "Eliminação de repetição de dados de órgão, UG, ação e favorecido, substituídos por FKs."
+      }
+    },
+    {
+      "module": "auxilio-brasil",
+      "description": "Pagamentos do programa social Auxílio Brasil aos cidadãos",
+      "bronzeTables": [
+        "auxilio_brasil"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores monetários normalizados para decimal(15,2); competência YYYYMM para varchar(7).",
+        "2FN": "Pagamento individualizado por parcela e competência para cada beneficiário.",
+        "3FN": "Nome, CPF e NIS do favorecido normalizados em pessoas_fisicas; município SIAFI e UF em municipios."
+      }
+    },
+    {
+      "module": "auxilio-emergencial",
+      "description": "Concessões e parcelas do Auxílio Emergencial e extensões",
+      "bronzeTables": [
+        "auxilio_emergencial"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Atomicidade de valores e flags de enquadramento; valores sentinela convertidos em NULL.",
+        "2FN": "Relação dependente unicamente do beneficiário e da competência/parcela.",
+        "3FN": "Beneficiário e Responsável Familiar isolados em pessoas_fisicas; município IBGE e UF em municipios."
+      }
+    },
+    {
+      "module": "auxilio-reconstrucao",
+      "description": "Auxílio de reconstrução financeira para vítimas de calamidades",
+      "bronzeTables": [
+        "auxilio_reconstrucao"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Data de pagamento convertida de string DD/MM/YYYY para date ISO.",
+        "2FN": "Parcela associada exclusivamente ao beneficiário cadastrado.",
+        "3FN": "Remoção de duplicidade de favorecido e município, vinculando via FKs."
+      }
+    },
+    {
+      "module": "bolsa-familia-pagamentos",
+      "description": "Folha de pagamentos mensal do Programa Bolsa Família",
+      "bronzeTables": [
+        "bolsa_familia_pagamentos"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Conversão de texto monetário para decimal(15,2); padronização de ano_mes_referencia e competencia.",
+        "2FN": "Registro transacional dependente da chave do beneficiário e do mês de competência.",
+        "3FN": "Favorecido isolado na dimensão pessoas_fisicas; município SIAFI na dimensão municipios."
+      }
+    },
+    {
+      "module": "bolsa-familia-saques",
+      "description": "Registros de saques efetivados de parcelas do Bolsa Família",
+      "bronzeTables": [
+        "bolsa_familia_saque"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Data do saque convertida para date; valor da parcela tipado em decimal(15,2).",
+        "2FN": "Transação de saque associada ao beneficiário e competência.",
+        "3FN": "Eliminação de redundância cadastral de nome/NIS/CPF e dados municipais."
+      }
+    },
+    {
+      "module": "bpc",
+      "description": "Benefício de Prestação Continuada (BPC/LOAS)",
+      "bronzeTables": [
+        "bpc"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Flag concedido_judicialmente convertida de SIM/NÃO para boolean.",
+        "2FN": "Pagamento individual indexado por número de benefício e competência.",
+        "3FN": "Beneficiário e Representante Legal normalizados em pessoas_fisicas com relacionamento 1:N."
+      }
+    },
+    {
+      "module": "ceaf",
+      "description": "Cadastro de Expulsões da Administração Federal",
+      "bronzeTables": [
+        "ceaf"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "estados",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "sancoes_administrativas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Datas civis de início, término e publicação convertidas em date ISO; esferas em mysqlEnum.",
+        "2FN": "Sanção disciplinar associada unicamente ao processo administrativo e sancionado.",
+        "3FN": "Unificação na entidade relacional sancoes_administrativas, isolando dados do sancionado e órgão."
+      }
+    },
+    {
+      "module": "ceis",
+      "description": "Cadastro Nacional de Empresas Inidôneas e Suspensas",
+      "bronzeTables": [
+        "ceis"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_juridicas",
+          "pessoas_fisicas",
+          "estados",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "sancoes_administrativas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Tipo de pessoa mapeado para mysqlEnum('F', 'J', 'FISICA', 'JURIDICA'); datas em date.",
+        "2FN": "Sanção vinculada ao processo e penalidade imposta.",
+        "3FN": "Razão social e nome fantasia extraídos para pessoas_juridicas; órgão sancionador normalizado."
+      }
+    },
+    {
+      "module": "cepim",
+      "description": "Cadastro de Entidades Privadas Sem Fins Lucrativos Impedidas",
+      "bronzeTables": [
+        "cepim"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_juridicas",
+          "convenios",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "sancoes_administrativas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "CNPJ limpo e validado; motivo de impedimento em text().",
+        "2FN": "Impedimento vinculado ao convênio e à entidade convenente.",
+        "3FN": "Entidade vinculada via FK à dimensão pessoas_juridicas e convênio referenciado relacionalmente."
+      }
+    },
+    {
+      "module": "cnep",
+      "description": "Cadastro Nacional de Empresas Punidas (Lei Anticorrupção)",
+      "bronzeTables": [
+        "cnep"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_juridicas",
+          "pessoas_fisicas",
+          "estados",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "sancoes_administrativas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor da multa normalizado para decimal(15,2); datas de trânsito em julgado para date.",
+        "2FN": "Sanção estritamente dependente do processo e da empresa condenada.",
+        "3FN": "Unificação com a tabela genérica de sanções com chave estrangeira para pessoas_juridicas."
+      }
+    },
+    {
+      "module": "compras",
+      "description": "Contratos administrativos, itens de compra, termos aditivos e apostilamentos",
+      "bronzeTables": [
+        "contratos_compras",
+        "contratos_item_compra",
+        "contratos_termo_aditivo",
+        "contratos_apostilamento"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "orgaos_subordinados",
+          "pessoas_juridicas",
+          "licitacoes"
+        ],
+        "entities": [
+          "contratos",
+          "contrato_itens",
+          "contrato_termos_aditivos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores de compras em decimal(15,2); datas de vigência e publicação em date.",
+        "2FN": "Itens, aditivos e apostilamentos dependem estritamente da chave primária contrato_id (1:N).",
+        "3FN": "Eliminação de repetição de UG, Órgão, Contratado e Licitação em todas as 4 tabelas filhas."
+      }
+    },
+    {
+      "module": "convenios",
+      "description": "Convênios federais e ordens bancárias de liberação de recursos",
+      "bronzeTables": [
+        "convenios",
+        "convenios_ordens_bancarias"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "pessoas_juridicas",
+          "municipios",
+          "estados"
+        ],
+        "entities": [
+          "convenios",
+          "convenio_ordens_bancarias"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores de convênio, liberado e contrapartida tipados em decimal(15,2); datas em date.",
+        "2FN": "Ordens bancárias dependem diretamente da FK convenio_id (1:N).",
+        "3FN": "UG Concedente, Convenente e Município normalizados e isolados em dimensões mestras."
+      }
+    },
+    {
+      "module": "cpcc",
+      "description": "Cartão de Pagamento de Compras Centralizadas",
+      "bronzeTables": [
+        "cartao_pagamento_cpcc"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "pessoas_fisicas",
+          "pessoas_juridicas"
+        ],
+        "entities": [
+          "cartao_pagamento_cpcc"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Data e valor da transação tipados em date e decimal(15,2).",
+        "2FN": "Despesa de cartão associada ao portador e UG.",
+        "3FN": "Portador isolado em pessoas_fisicas; estabelecimento em pessoas_juridicas; UG em unidades_gestoras."
+      }
+    },
+    {
+      "module": "cpdc",
+      "description": "Cartão de Pagamento da Defesa Civil",
+      "bronzeTables": [
+        "cartao_pagamento_defesa_civil"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "estados",
+          "convenios"
+        ],
+        "entities": [
+          "cartao_pagamento_defesa_civil"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores em decimal(15,2) e datas da transação em date.",
+        "2FN": "Transação vinculada ao convênio de calamidade e ao portador.",
+        "3FN": "Convenente, portador e favorecido vinculados via FKs; convênio referenciado por chave relacional."
+      }
+    },
+    {
+      "module": "cpgf",
+      "description": "Cartão de Pagamento do Governo Federal (Suprimento de Fundos)",
+      "bronzeTables": [
+        "cartao_pagamento_cpgf"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "pessoas_fisicas",
+          "pessoas_juridicas"
+        ],
+        "entities": [
+          "cartao_pagamento_cpgf"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor em decimal(15,2); ano/mês do extrato em char(4)/char(2).",
+        "2FN": "Despesa vinculada ao extrato mensal da UG e portador.",
+        "3FN": "Hierarquia de Órgão Superior, Subordinado e UG normalizada em 3FN; portador e favorecido em FKs."
+      }
+    },
+    {
+      "module": "despesas",
+      "description": "Ciclo completo da despesa pública da União (Empenho, Liquidação e Pagamento Siafi)",
+      "bronzeTables": [
+        "despesas_empenho",
+        "despesas_liquidacao",
+        "despesas_pagamento",
+        "despesas_item_empenho",
+        "despesas_item_empenho_historico",
+        "despesas_liquidacao_empenhos_impactados",
+        "despesas_pagamento_empenhos_impactados",
+        "despesas_pagamento_favorecidos_finais",
+        "despesas_pagamento_lista_bancos",
+        "despesas_pagamento_lista_faturas",
+        "despesas_pagamento_lista_precatorios"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "gestoes",
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "funcoes_orcamentarias",
+          "subfuncoes_orcamentarias",
+          "programas_orcamentarios",
+          "acoes_orcamentarias",
+          "planos_orcamentarios",
+          "categorias_despesa",
+          "grupos_despesa",
+          "modalidades_aplicacao",
+          "elementos_despesa",
+          "subelementos_despesa",
+          "fontes_recursos"
+        ],
+        "entities": [
+          "despesas_empenhos",
+          "despesas_empenho_itens",
+          "despesas_liquidacoes",
+          "despesas_liquidacao_empenhos",
+          "despesas_pagamentos",
+          "despesas_pagamento_empenhos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores federais de grande porte tipados em decimal(18,2); datas Siafi em date; flags em boolean.",
+        "2FN": "Itens de empenho e listas de pagamento dependem exclusivamente da FK de seu cabeçalho.",
+        "3FN": "Eliminação maciça de 15 campos orçamentários repetidos em todas as tabelas, substituídos por FKs das dimensões."
+      }
+    },
+    {
+      "module": "despesas-execucao",
+      "description": "Execução orçamentária mensal agregada de despesas por localizador e ação",
+      "bronzeTables": [
+        "execucao_despesa"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "acoes_orcamentarias",
+          "municipios",
+          "estados",
+          "categorias_despesa",
+          "grupos_despesa",
+          "elementos_despesa",
+          "modalidades_aplicacao"
+        ],
+        "entities": [
+          "despesas_empenhos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores empenhados, liquidados e pagos em decimal(18,2); competência YYYYMM em varchar(7).",
+        "2FN": "Métricas de execução atreladas à combinação de UG, Ação e Localizador.",
+        "3FN": "Substituição de nomes de órgãos, funções e municípios por FKs normalizadas."
+      }
+    },
+    {
+      "module": "despesas-favorecidos",
+      "description": "Recebimentos de recursos orçamentários agregados por favorecido",
+      "bronzeTables": [
+        "recebimento_recursos_favorecido"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "unidades_gestoras",
+          "municipios",
+          "estados"
+        ],
+        "entities": [
+          "despesas_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor recebido tipado em decimal(18,2); anoMesLancamento em varchar(7).",
+        "2FN": "Agregação mensal por favorecido e órgão pagador.",
+        "3FN": "Favorecido mapeado para pessoas_fisicas ou pessoas_juridicas; órgão e município em FKs."
+      }
+    },
+    {
+      "module": "emendas-parlamentares",
+      "description": "Emendas parlamentares individuais, de bancada e de comissão e suas execuções",
+      "bronzeTables": [
+        "emendas_parlamentares",
+        "emendas_parlamentares_convenios",
+        "emendas_parlamentares_favorecido"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "municipios",
+          "estados",
+          "funcoes_orcamentarias",
+          "subfuncoes_orcamentarias",
+          "programas_orcamentarios",
+          "acoes_orcamentarias",
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "convenios"
+        ],
+        "entities": [
+          "emendas_parlamentares"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores orçamentários em decimal(18,2); ano da emenda em char(4).",
+        "2FN": "Convênios e favorecidos vinculados à emenda mestre via FK codigo_emenda.",
+        "3FN": "Classificações de função, subfunção, programa, ação e município normalizadas em dimensões."
+      }
+    },
+    {
+      "module": "emendas-parlamentares-documentos",
+      "description": "Documentos contábeis de despesa (empenhos e ordens) vinculados a emendas",
+      "bronzeTables": [
+        "emendas_parlamentares_documentos_despesa"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "emendas_parlamentares",
+          "unidades_gestoras",
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "municipios",
+          "estados"
+        ],
+        "entities": [
+          "despesas_empenhos",
+          "despesas_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores empenhados e pagos em decimal(18,2); data do documento em date ISO.",
+        "2FN": "Documento orçamentário atrelado à emenda e à fase da despesa.",
+        "3FN": "Eliminação de replicação de toda a árvore institucional e orçamentária do Siafi."
+      }
+    },
+    {
+      "module": "favorecidos-pj",
+      "description": "Cadastro mestre de Pessoas Jurídicas, CNAEs e Naturezas Jurídicas",
+      "bronzeTables": [
+        "favorecidos_pj_cnpj",
+        "favorecidos_pj_cnae",
+        "favorecidos_pj_natureza_juridica"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "cnaes",
+          "naturezas_juridicas",
+          "municipios",
+          "estados"
+        ],
+        "entities": [
+          "pessoas_juridicas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "CNPJ limpo com máscara padronizada de 18 caracteres; CEP em varchar(9).",
+        "2FN": "Atributos de endereço e cadastrais dependem exclusivamente do CNPJ mestre.",
+        "3FN": "CNAE e Natureza Jurídica normalizados em tabelas lookup próprias com relacionamento 1:N."
+      }
+    },
+    {
+      "module": "garantia-safra",
+      "description": "Benefício do Programa Garantia-Safra para agricultores familiares",
+      "bronzeTables": [
+        "garantia_safra"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor do benefício em decimal(15,2); competência YYYYMM em varchar(7).",
+        "2FN": "Benefício associado ao produtor rural familiar por safra.",
+        "3FN": "Agricultor normalizado em pessoas_fisicas; município SIAFI em municipios."
+      }
+    },
+    {
+      "module": "gas-do-povo",
+      "description": "Auxílio Gás dos Brasileiros (Gás do Povo) e controle de vales",
+      "bronzeTables": [
+        "gas_do_povo"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "pessoas_juridicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Datas de vigência e retirada do vale convertidas para date; quantidade de pessoas em int.",
+        "2FN": "Concessão do vale vinculada ao beneficiário e estabelecimento credenciado.",
+        "3FN": "Estabelecimento comercial revendedor isolado em pessoas_juridicas; cidadão em pessoas_fisicas."
+      }
+    },
+    {
+      "module": "imoveis-funcionais",
+      "description": "Gestão de imóveis funcionais da União e relação de permissionários",
+      "bronzeTables": [
+        "imoveis_funcionais",
+        "imoveis_funcionais_permissionarios"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "imoveis_funcionais",
+          "imoveis_funcionais_permissionarios"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Data de ocupação tipada em date; CPF com máscara padrão LGPD.",
+        "2FN": "Termo de permissão depende do imóvel funcional e do servidor ocupante.",
+        "3FN": "Permissionário normalizado em pessoas_fisicas; órgão responsável em orgaos_subordinados."
+      }
+    },
+    {
+      "module": "licitacoes",
+      "description": "Processos licitatórios, itens cotados, participantes e empenhos associados",
+      "bronzeTables": [
+        "licitacao",
+        "licitacao_item",
+        "licitacao_participantes",
+        "licitacao_empenhos_relacionados"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "municipios",
+          "estados",
+          "pessoas_juridicas"
+        ],
+        "entities": [
+          "licitacoes",
+          "licitacao_itens",
+          "licitacao_participantes",
+          "despesas_empenhos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor da licitação em decimal(15,2); datas de abertura e resultado em date; flag_vencedor em boolean.",
+        "2FN": "Itens da licitação e propostas de concorrentes dependem unicamente da FK licitacao_id (1:N).",
+        "3FN": "Empresas participantes isoladas em pessoas_juridicas; órgão promotor em unidades_gestoras."
+      }
+    },
+    {
+      "module": "notas-fiscais",
+      "description": "Notas Fiscais Eletrônicas (NF-e) de fornecedores de órgãos públicos federais",
+      "bronzeTables": [
+        "nota_fiscal",
+        "nota_fiscal_item",
+        "nota_fiscal_evento"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_juridicas",
+          "pessoas_fisicas",
+          "estados",
+          "municipios"
+        ],
+        "entities": [
+          "notas_fiscais",
+          "nota_fiscal_itens",
+          "nota_fiscal_eventos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Chave de acesso em char(44) fixo; valores em decimal(15,2); quantidade de itens em decimal(14,4).",
+        "2FN": "Itens da nota e eventos de cancelamento/autorização dependem estritamente da FK nota_fiscal_id.",
+        "3FN": "Emitente e Destinatário extraídos para pessoas_juridicas / pessoas_fisicas com chaves relacionais."
+      }
+    },
+    {
+      "module": "novo-bolsa-familia",
+      "description": "Pagamentos mensais do Novo Bolsa Família unificado",
+      "bronzeTables": [
+        "novo_bolsa_familia"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Data de disponibilização em date; valor da parcela em decimal(15,2).",
+        "2FN": "Parcela de benefício atrelada à pessoa física e à competência da folha.",
+        "3FN": "Beneficiário e município transferidos para suas respectivas tabelas canônicas."
+      }
+    },
+    {
+      "module": "orcamento-despesa",
+      "description": "Leis orçamentárias anuais (LOA) e dotações orçamentárias atualizadas",
+      "bronzeTables": [
+        "orcamento_despesa"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "acoes_orcamentarias",
+          "categorias_despesa",
+          "grupos_despesa",
+          "elementos_despesa"
+        ],
+        "entities": [
+          "orcamento_despesa"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Dotação inicial, atualizada, empenhada e realizada em decimal(18,2); percentual em decimal(7,2).",
+        "2FN": "Dotação orçamentária vinculada à combinação de Unidade Orçamentária, Ação e Elemento.",
+        "3FN": "Substituição da árvore orçamentária textual por relacionamentos diretos com as dimensões orçamentárias."
+      }
+    },
+    {
+      "module": "pe-de-meia",
+      "description": "Incentivo financeiro-educacional para estudantes do Ensino Médio",
+      "bronzeTables": [
+        "pe_de_meia"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Data de pagamento em date; valor da parcela em decimal(15,2).",
+        "2FN": "Parcela de incentivo vinculada ao estudante e etapa de ensino.",
+        "3FN": "Estudante e Responsável Legal normalizados em pessoas_fisicas com integridade referencial."
+      }
+    },
+    {
+      "module": "pep",
+      "description": "Cadastro de Pessoas Expostas Politicamente",
+      "bronzeTables": [
+        "pep"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "pep"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Datas de início, término e carência tipadas em date.",
+        "2FN": "Mandato/função política associado à pessoa física.",
+        "3FN": "Pessoa física isolada na dimensão canônica pessoas_fisicas; órgão público em orgaos_subordinados."
+      }
+    },
+    {
+      "module": "peti",
+      "description": "Programa de Erradicação do Trabalho Infantil",
+      "bronzeTables": [
+        "peti"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor da parcela em decimal(15,2); competência YYYYMM em varchar(7).",
+        "2FN": "Concessão do benefício vinculada ao beneficiário assistido.",
+        "3FN": "Cidadão beneficiado e município SIAFI extraídos para entidades mestras."
+      }
+    },
+    {
+      "module": "receitas",
+      "description": "Previsão e arrecadação de receitas públicas da União",
+      "bronzeTables": [
+        "receitas"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "orgaos_subordinados",
+          "orgaos_superiores"
+        ],
+        "entities": [
+          "receitas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores previsto, lançado e realizado em decimal(18,2); percentual em decimal(7,2); data em date.",
+        "2FN": "Lançamento de receita vinculado à UG arrecadadora e natureza da receita.",
+        "3FN": "Órgãos superiores e unidades gestoras normalizados na hierarquia institucional."
+      }
+    },
+    {
+      "module": "renuncias",
+      "description": "Renúncias fiscais, desonerações tributárias e empresas habilitadas ou imunes",
+      "bronzeTables": [
+        "renuncias_fiscais",
+        "renuncias_fiscais_por_beneficiario",
+        "empresas_imunes_ou_isentas",
+        "empresas_habilitadas"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_juridicas",
+          "cnaes",
+          "municipios",
+          "estados"
+        ],
+        "entities": [
+          "renuncias_fiscais",
+          "empresas_habilitadas"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores de renúncia em decimal(15,2); datas de habilitação em date; ano-calendário em char(4).",
+        "2FN": "Benefício fiscal concedido à pessoa jurídica beneficiária.",
+        "3FN": "Dados cadastrais, CNAE e município da empresa unificados na dimensão pessoas_juridicas."
+      }
+    },
+    {
+      "module": "seguro-defeso",
+      "description": "Seguro-desemprego concedido a pescadores artesanais no período de defeso",
+      "bronzeTables": [
+        "seguro_defeso"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "municipios",
+          "estados",
+          "programas_sociais"
+        ],
+        "entities": [
+          "beneficio_pagamentos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor da parcela em decimal(15,2); RGP em varchar(20).",
+        "2FN": "Parcela do defeso vinculada ao pescador artesanal e competência.",
+        "3FN": "Pescador normalizado em pessoas_fisicas; município em municipios."
+      }
+    },
+    {
+      "module": "servidores",
+      "description": "Servidores ativos, aposentados, pensionistas, remunerações, jetons e afastamentos",
+      "bronzeTables": [
+        "servidores_cadastro",
+        "aposentados_cadastro",
+        "pensionistas_cadastro",
+        "servidores_afastamentos",
+        "servidores_observacoes",
+        "servidores_honorarios_advocaticios",
+        "servidores_jetons",
+        "servidores_remuneracao"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "orgaos_subordinados",
+          "orgaos_superiores",
+          "estados"
+        ],
+        "entities": [
+          "servidores",
+          "servidores_remuneracoes",
+          "servidores_afastamentos",
+          "servidores_jetons",
+          "servidores_honorarios"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Todas as 30+ rubricas salariais tipadas em decimal(15,2); datas de ingresso em date; flags em boolean.",
+        "2FN": "Remuneração mensal, afastamentos e jetons dependem estritamente da FK servidor_id (1:N).",
+        "3FN": "Dados pessoais em pessoas_fisicas; lotação e exercício apontam para orgaos_subordinados."
+      }
+    },
+    {
+      "module": "transferencias",
+      "description": "Transferências voluntárias e constitucionais de recursos federais a estados e municípios",
+      "bronzeTables": [
+        "recursos_transferidos"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "unidades_gestoras",
+          "municipios",
+          "estados",
+          "acoes_orcamentarias",
+          "pessoas_fisicas",
+          "pessoas_juridicas"
+        ],
+        "entities": [
+          "recursos_transferidos"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valor transferido em decimal(18,2); competência YYYYMM em varchar(7).",
+        "2FN": "Transferência atrelada ao ente beneficiário, UG concedente e ação governamental.",
+        "3FN": "Município recebedor, UG repassadora e ação orçamentária normalizados em FKs relacionais."
+      }
+    },
+    {
+      "module": "viagens",
+      "description": "Viagens a serviço pagas pelo governo federal (PCDP), diárias, passagens e trechos",
+      "bronzeTables": [
+        "viagens_viagem",
+        "viagens_passagem",
+        "viagens_trecho",
+        "viagens_pagamento"
+      ],
+      "silverTables": {
+        "dimensions": [
+          "pessoas_fisicas",
+          "unidades_gestoras",
+          "orgaos_subordinados"
+        ],
+        "entities": [
+          "viagens",
+          "viagem_trechos",
+          "viagem_passagens"
+        ]
+      },
+      "normalizationDetails": {
+        "1FN": "Valores de diárias, passagens e taxas em decimal(15,2); datas do itinerário em date; missao em boolean.",
+        "2FN": "Trechos de itinerário e bilhetes de passagem dependem unicamente da FK viagem_id (1:N).",
+        "3FN": "Viajante isolado em pessoas_fisicas; UG e Órgão pagador/solicitante em unidades_gestoras."
+      }
+    }
+  ]
+}

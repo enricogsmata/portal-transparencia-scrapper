@@ -53,56 +53,56 @@ export async function runProcessors() {
     //await runBpcIngestion();
 
     // CARTÃO DE PAGAMENTO
-    //await runCartaoPagamentoCpgfIngestion();
-    //await runCartaoPagamentoCpccIngestion();
-    //await runCartaoPagamentoDefesaCivilIngestion();
+    await runCartaoPagamentoCpgfIngestion();
+    await runCartaoPagamentoCpccIngestion();
+    await runCartaoPagamentoDefesaCivilIngestion();
 
     // CNPJ
-    //await runFavorecidosPjIngestion();
+    await runFavorecidosPjIngestion();
 
     // CONVÊNIOS E INSTRUMENTOS CONGÊNERES
-    //await runConveniosIngestion();
+    await runConveniosIngestion();
 
     // DESPESAS PÚBLICAS
-    //await runDespesasIngestion();
-    //await runExecucaoDespesaIngestion();
-    //await runRecursosTransferidosIngestion();
-    //await runRecebimentoRecursosFavorecidoIngestion();
+    await runDespesasIngestion();
+    await runExecucaoDespesaIngestion();
+    await runRecursosTransferidosIngestion();
+    await runRecebimentoRecursosFavorecidoIngestion();
 
     // EMENDAS PARLAMENTARES
-    //await runEmendasParlamentaresIngestion();
-    //await runEmendasParlamentaresDocumentosDespesaIngestion();
-    //await runApoiamentosEmendasParlamentaresIngestion();
+    await runEmendasParlamentaresIngestion();
+    await runEmendasParlamentaresDocumentosDespesaIngestion();
+    await runApoiamentosEmendasParlamentaresIngestion();
 
     // IMÓVEIS FUNCIONAIS
-    //await runImoveisFuncionaisIngestion();
+    await runImoveisFuncionaisIngestion();
 
     // LICITAÇÕES E CONTRATOS
-    //await runLicitacoesIngestion();
-    //await runContratosIngestion();
+    await runLicitacoesIngestion();
+    await runContratosIngestion();
 
     // NOTAS FISCAIS
-    //await runNotasFiscaisIngestion();
+    await runNotasFiscaisIngestion();
 
     // ORÇAMENTO PÚBLICO
-    //await runOrcamentoDespesaIngestion();
+    await runOrcamentoDespesaIngestion();
     
     // RECEITAS PÚBLICAS
     //await ();
     
     // RENÚNCIAS FISCAIS
-    //await runRenunciasFiscaisIngestion();
+    await runRenunciasFiscaisIngestion();
     
     // SANÇÕES
-    //await runCeisIngestion();
-    //await runCepimIngestion();
-    //await runCnepIngestion();
-    //await runAcordosLenienciaIngestion();
+    await runCeisIngestion();
+    await runCepimIngestion();
+    await runCnepIngestion();
+    await runAcordosLenienciaIngestion();
 
     // SERVIDORES
-    //await runServidoresIngestion();
-    //await runCeafIngestion();
-    //await runPepIngestion();
+    await runServidoresIngestion();
+    await runCeafIngestion();
+    await runPepIngestion();
 
     // VIAGENS A SERVIÇO
     await runViagensIngestion();
