@@ -31,6 +31,7 @@ import { runPeDeMeiaIngestion } from "./processors/pe-de-meia.js";
 import { runPepIngestion } from "./processors/pep.js";
 import { runPetiIngestion } from "./processors/peti.js";
 import { runRecebimentoRecursosFavorecidoIngestion } from "./processors/recebimento-recursos-favorecido.js";
+import { runReceitasIngestion } from "./processors/receitas.js";
 import { runRecursosTransferidosIngestion } from "./processors/recursos-transferidos.js";
 import { runRenunciasFiscaisIngestion } from "./processors/renuncias-fiscais.js";
 import { runSeguroDefesoIngestion } from "./processors/seguro-defeso.js";
@@ -39,18 +40,18 @@ import { runViagensIngestion } from "./processors/viagens.js";
 
 export async function runProcessors() {
     // BENEFÍCIOS AO CIDADÃO
-    //await runAuxilioBrasilIngestion();
-    //await runAuxilioEmergencialIngestion();
-    //await runAuxilioReconstrucaoIngestion();
-    //await runBolsaPagamentosFamiliaIngestion();
-    //await runBolsaFamiliaSaqueIngestion();
-    //await runNovoBolsaFamiliaIngestion();
-    //await runGarantiaSafraIngestion();
-    //await runGasDoPovoIngestion();
-    //await runSeguroDefesoIngestion();
-    //await runPetiIngestion();
-    //await runPeDeMeiaIngestion();
-    //await runBpcIngestion();
+    await runAuxilioBrasilIngestion();
+    await runAuxilioEmergencialIngestion();
+    await runAuxilioReconstrucaoIngestion();
+    await runBolsaPagamentosFamiliaIngestion();
+    await runBolsaFamiliaSaqueIngestion();
+    await runNovoBolsaFamiliaIngestion();
+    await runGarantiaSafraIngestion();
+    await runGasDoPovoIngestion();
+    await runSeguroDefesoIngestion();
+    await runPetiIngestion();
+    await runPeDeMeiaIngestion();
+    await runBpcIngestion();
 
     // CARTÃO DE PAGAMENTO
     await runCartaoPagamentoCpgfIngestion();
@@ -88,7 +89,7 @@ export async function runProcessors() {
     await runOrcamentoDespesaIngestion();
     
     // RECEITAS PÚBLICAS
-    //await ();
+    await runReceitasIngestion();
     
     // RENÚNCIAS FISCAIS
     await runRenunciasFiscaisIngestion();
