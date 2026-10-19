@@ -1,3 +1,4 @@
+// src\pipeline\silver\shared\formatters.ts
 /**
  * Normaliza e formata CNPJ desformatado da camada bronze (apenas números ou formatos parciais)
  * para o padrão completo da camada silver: XX.XXX.XXX/XXXX-XX
@@ -19,4 +20,20 @@ export function parseDate(dateStr?: string | null): string | null {
     return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
   }
   return dateStr;
+}
+
+/**
+ * Normaliza strings financeiras do formato brasileiro (1.234,56) 
+ * para o formato aceito pelo SQL/Decimal (1234.56).
+ */
+export function parseDecimal(value?: string | null): string | null {
+  if (!value) return null;
+  const cleaned = value.replace(/\./g, '').replace(',', '.');
+  return isNaN(Number(cleaned)) ? null : cleaned;
+}
+
+export function formatCep(cep?: string | null): string | null {
+  if (!cep) return null;
+  const cleaned = cep.replace(/\D/g, '').padStart(8, '0');
+  return `${cleaned.slice(0, 5)}-${cleaned.slice(5, 8)}`;
 }

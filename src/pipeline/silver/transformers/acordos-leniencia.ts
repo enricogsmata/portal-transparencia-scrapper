@@ -18,21 +18,19 @@ export async function processAcordosLeniencia() {
 
   try {
     while (hasMore) {
-      // 1. Extração de Entidades Bronze
       const acordosBronze = await bronze_db.select()
         .from(AcordosLeniencia)
         .limit(BATCH_SIZE)
         .offset(offset);
 
       if (acordosBronze.length === 0) {
-        log.info({ data: { offset } }, 'Processamento concluído. Nenhum registro adicional encontrado na camada bronze.');
+        log.info({ data: { offset } }, 'Processamento concluído. Nenhum registro adicional encontrado.');
         hasMore = false;
         break;
       }
 
-      log.info({ data: { offset, batchSize: acordosBronze.length } }, 'Lote extraído da camada bronze');
+      log.info({ data: { offset, batchSize: acordosBronze.length } }, 'Lote extraído da tabela acordos_leniencia');
 
-      // 2. Extração, Deduplicação e Upsert na Dimensão de Pessoas Jurídicas (3FN)
       const empresasToUpsert = acordosBronze
         .filter((a) => a.cnpjSancionado && formatCnpj(a.cnpjSancionado))
         .map((a) => ({
@@ -57,16 +55,14 @@ export async function processAcordosLeniencia() {
           });
       }
 
-      // 3. Recuperação de Chaves Estrangeiras (Empresas)
       const cnpjs = uniqueEmpresas.map((e) => e.cnpj);
       const empresasDb = cnpjs.length > 0
         ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj })
-          .from(pessoasJuridicas)
-          .where(inArray(pessoasJuridicas.cnpj, cnpjs))
+            .from(pessoasJuridicas)
+            .where(inArray(pessoasJuridicas.cnpj, cnpjs))
         : [];
       const empresaIdMap = new Map(empresasDb.map((e) => [e.cnpj, e.id]));
 
-      // 4. Mapeamento, Deduplicação e Upsert da Entidade Principal de Acordos
       const acordosToInsert = acordosBronze
         .filter((a) => a.idAcordo && a.cnpjSancionado && a.dataInicioAcordo)
         .map((a) => {
@@ -105,43 +101,68 @@ export async function processAcordosLeniencia() {
           });
       }
 
-      // 5. Processamento, Resiliência e Inserção de Efeitos Dependentes (2FN)
-      const acordosIds = acordosBronze.map((a) => a.idAcordo).filter(Boolean) as string[];
+      offset += BATCH_SIZE;
+    }
+  } catch (error) {
+    log.error({ data: error }, 'Erro fatal durante o processamento de Acordos de Leniência');
+    throw error;
+  }
+}
+
+export async function processAcordosLenienciaEfeitos() {
+  const log = logger.forMethod('processAcordosLenienciaEfeitos');
+  const BATCH_SIZE = 1000;
+  let offset = 0;
+  let hasMore = true;
+
+  log.info('Iniciando processamento de Efeitos de Acordos de Leniência');
+
+  try {
+    while (hasMore) {
+      const efeitosBronze = await bronze_db.select()
+        .from(AcordosLenienciaEfeitos)
+        .limit(BATCH_SIZE)
+        .offset(offset);
+
+      if (efeitosBronze.length === 0) {
+        log.info({ data: { offset } }, 'Processamento concluído. Nenhum registro adicional encontrado.');
+        hasMore = false;
+        break;
+      }
+
+      log.info({ data: { offset, batchSize: efeitosBronze.length } }, 'Lote extraído da tabela acordos_leniencia_efeitos');
+
+      const acordosIds = [...new Set(efeitosBronze.map((e) => e.idAcordo).filter(Boolean) as string[])];
+      
       if (acordosIds.length > 0) {
-        const efeitosBronze = await bronze_db.select()
-          .from(AcordosLenienciaEfeitos)
-          .where(inArray(AcordosLenienciaEfeitos.idAcordo, acordosIds));
+        const acordosDb = await silver_db.select({ id: acordosLeniencia.id, idAcordo: acordosLeniencia.idAcordo })
+          .from(acordosLeniencia)
+          .where(inArray(acordosLeniencia.idAcordo, acordosIds));
+        const acordoIdMap = new Map(acordosDb.map((a) => [a.idAcordo, a.id]));
 
-        if (efeitosBronze.length > 0) {
-          const acordosDb = await silver_db.select({ id: acordosLeniencia.id, idAcordo: acordosLeniencia.idAcordo })
-            .from(acordosLeniencia)
-            .where(inArray(acordosLeniencia.idAcordo, acordosIds));
-          const acordoIdMap = new Map(acordosDb.map((a) => [a.idAcordo, a.id]));
+        const efeitosToInsert = efeitosBronze
+          .map((e) => {
+            const acordoId = e.idAcordo ? acordoIdMap.get(e.idAcordo) : null;
+            if (!acordoId || !e.efeitoAcordo) return null;
+            
+            return {
+              acordoId,
+              efeitoAcordo: e.efeitoAcordo,
+              complemento: e.complemento,
+            };
+          })
+          .filter(Boolean) as typeof acordoLenienciaEfeitos.$inferInsert[];
 
-          const efeitosToInsert = efeitosBronze
-            .map((e) => {
-              const acordoId = acordoIdMap.get(e.idAcordo!);
-              if (!acordoId || !e.efeitoAcordo) return null;
-              return {
-                acordoId,
-                efeitoAcordo: e.efeitoAcordo,
-                complemento: e.complemento,
-              };
-            })
-            .filter(Boolean) as typeof acordoLenienciaEfeitos.$inferInsert[];
+        if (efeitosToInsert.length > 0) {
+          const silverAcordosIds = Array.from(new Set(efeitosToInsert.map((e) => e.acordoId)));
+          
+          log.info({ data: { count: efeitosToInsert.length, acordosAfetados: silverAcordosIds.length } }, 'Inserindo acordo_leniencia_efeitos');
+          
+          await silver_db.delete(acordoLenienciaEfeitos)
+            .where(inArray(acordoLenienciaEfeitos.acordoId, silverAcordosIds));
 
-          if (efeitosToInsert.length > 0) {
-            const silverAcordosIds = Array.from(new Set(efeitosToInsert.map((e) => e.acordoId)));
-
-            log.info({ data: { count: efeitosToInsert.length, acordosAfetados: silverAcordosIds.length } }, 'Inserindo acordo_leniencia_efeitos');
-
-            // Garante idempotência: remove efeitos anteriores desta exata remessa para evitar duplicatas sem dependência de unique keys múltiplas
-            await silver_db.delete(acordoLenienciaEfeitos)
-              .where(inArray(acordoLenienciaEfeitos.acordoId, silverAcordosIds));
-
-            for (let i = 0; i < efeitosToInsert.length; i += 1000) {
-              await silver_db.insert(acordoLenienciaEfeitos).values(efeitosToInsert.slice(i, i + 1000));
-            }
+          for (let i = 0; i < efeitosToInsert.length; i += 1000) {
+            await silver_db.insert(acordoLenienciaEfeitos).values(efeitosToInsert.slice(i, i + 1000));
           }
         }
       }
@@ -149,7 +170,7 @@ export async function processAcordosLeniencia() {
       offset += BATCH_SIZE;
     }
   } catch (error) {
-    log.error({ data: error }, 'Erro fatal durante o processamento de Acordos de Leniência');
+    log.error({ data: error }, 'Erro fatal durante o processamento de Efeitos de Acordos de Leniência');
     throw error;
   }
 }
