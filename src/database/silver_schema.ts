@@ -14,6 +14,7 @@ import {
   mysqlEnum,
   index,
   uniqueIndex,
+  foreignKey,
 } from 'drizzle-orm/mysql-core';
 import { relations, sql } from 'drizzle-orm';
 
@@ -31,7 +32,7 @@ export const logs = mysqlTable(
     message: varchar('message', { length: 500 }).notNull().default(''),
     data: json('data'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_logs_category').on(table.category),
@@ -49,7 +50,7 @@ export const fileDownloadHistory = mysqlTable(
     frequency: varchar('frequency', { length: 50 }).notNull(),
     downloadedAt: timestamp('downloaded_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_fdh_module_name').on(table.moduleName),
@@ -69,7 +70,7 @@ export const estados = mysqlTable(
     codigoIbge: char('codigo_ibge', { length: 2 }).notNull().unique(),
     regiao: varchar('regiao', { length: 20 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -82,7 +83,7 @@ export const municipios = mysqlTable(
     codigoIbge: varchar('codigo_ibge', { length: 10 }).unique(),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_municipios_uf').on(table.ufSigla),
@@ -103,7 +104,7 @@ export const orgaosSuperiores = mysqlTable(
     codigo: varchar('codigo', { length: 30 }).notNull().unique(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_orgaos_sup_codigo').on(table.codigo),
@@ -118,7 +119,7 @@ export const orgaosSubordinados = mysqlTable(
     codigo: varchar('codigo', { length: 30 }).notNull().unique(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_orgaos_sub_superior').on(table.orgaoSuperiorId),
@@ -134,7 +135,7 @@ export const unidadesGestoras = mysqlTable(
     codigo: varchar('codigo', { length: 30 }).notNull().unique(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_ug_orgao_sub').on(table.orgaoSubordinadoId),
@@ -149,7 +150,7 @@ export const gestoes = mysqlTable(
     codigo: varchar('codigo', { length: 30 }).notNull().unique(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -166,7 +167,7 @@ export const cnaes = mysqlTable(
     codigoSubclasse: varchar('codigo_subclasse', { length: 20 }).notNull().unique(),
     descricaoSubclasse: varchar('descricao_subclasse', { length: 255 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_cnae_subclasse').on(table.codigoSubclasse),
@@ -182,7 +183,7 @@ export const naturezasJuridicas = mysqlTable(
     codigoTipo: varchar('codigo_tipo', { length: 10 }),
     descricaoTipo: varchar('descricao_tipo', { length: 255 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_nat_juridica_codigo').on(table.codigo),
@@ -198,7 +199,7 @@ export const pessoasFisicas = mysqlTable(
     nome: varchar('nome', { length: 255 }),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_pf_cpf').on(table.cpf),
@@ -224,7 +225,7 @@ export const pessoasJuridicas = mysqlTable(
     bairro: varchar('bairro', { length: 100 }),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_pj_cnpj').on(table.cnpj),
@@ -245,7 +246,7 @@ export const funcoesOrcamentarias = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -256,7 +257,7 @@ export const subfuncoesOrcamentarias = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -267,7 +268,7 @@ export const programasOrcamentarios = mysqlTable(
     codigo: varchar('codigo', { length: 20 }).notNull().unique(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -279,8 +280,12 @@ export const acoesOrcamentarias = mysqlTable(
     codigo: varchar('codigo', { length: 20 }).notNull(),
     nome: varchar('nome', { length: 255 }).notNull(),
     linguagemCidada: text('linguagem_cidada'),
-    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 })
+      .default(sql`CURRENT_TIMESTAMP(3)`)
+      .notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 })
+      .default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`)
+      .notNull(),
   },
   (table) => [
     index('idx_acoes_programa').on(table.programaId),
@@ -295,7 +300,7 @@ export const planosOrcamentarios = mysqlTable(
     codigo: varchar('codigo', { length: 30 }).notNull().unique(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -308,7 +313,7 @@ export const subtitulosLocalizadores = mysqlTable(
     sigla: varchar('sigla', { length: 50 }),
     descricaoComplementar: text('descricao_complementar'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -319,7 +324,7 @@ export const categoriasDespesa = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
     nome: varchar('nome', { length: 100 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -330,7 +335,7 @@ export const gruposDespesa = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
     nome: varchar('nome', { length: 100 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -341,7 +346,7 @@ export const modalidadesAplicacao = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
     nome: varchar('nome', { length: 100 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -352,7 +357,7 @@ export const elementosDespesa = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -364,7 +369,7 @@ export const subelementosDespesa = mysqlTable(
     codigo: varchar('codigo', { length: 10 }).notNull(),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_subelemento_elemento').on(table.elementoDespesaId),
@@ -381,7 +386,7 @@ export const fontesRecursos = mysqlTable(
     codigoFonte: varchar('codigo_fonte', { length: 30 }).notNull().unique(),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -402,10 +407,16 @@ export const despesasEmpenhos = mysqlTable(
     funcaoId: bigint('funcao_id', { mode: 'number' }).references(() => funcoesOrcamentarias.id),
     subfuncaoId: bigint('subfuncao_id', { mode: 'number' }).references(() => subfuncoesOrcamentarias.id),
     acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
-    planoOrcamentarioId: bigint('plano_orcamentario_id', { mode: 'number' }).references(() => planosOrcamentarios.id),
+
+    // Removido .references() destas duas colunas:
+    planoOrcamentarioId: bigint('plano_orcamentario_id', { mode: 'number' }),
+
     categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
     grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
-    modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }).references(() => modalidadesAplicacao.id),
+
+    // Removido .references() destas duas colunas:
+    modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }),
+
     elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }).references(() => elementosDespesa.id),
     fonteRecursoId: bigint('fonte_recurso_id', { mode: 'number' }).references(() => fontesRecursos.id),
     tipoEmpenho: varchar('tipo_empenho', { length: 100 }),
@@ -417,7 +428,7 @@ export const despesasEmpenhos = mysqlTable(
     valorEmpenhoConvertido: decimal('valor_empenho_convertido', { precision: 18, scale: 2 }),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_desp_emp_ug').on(table.unidadeGestoraId),
@@ -425,6 +436,18 @@ export const despesasEmpenhos = mysqlTable(
     index('idx_desp_emp_fav_pf').on(table.favorecidoPfId),
     index('idx_desp_emp_fav_pj').on(table.favorecidoPjId),
     index('idx_desp_emp_exercicio').on(table.exercicioReferencia),
+
+    // Chaves estrangeiras com nomes curtos
+    foreignKey({
+      name: 'fk_de_plano_orc',
+      columns: [table.planoOrcamentarioId],
+      foreignColumns: [planosOrcamentarios.id],
+    }),
+    foreignKey({
+      name: 'fk_de_mod_aplicacao',
+      columns: [table.modalidadeAplicacaoId],
+      foreignColumns: [modalidadesAplicacao.id],
+    }),
   ]
 );
 
@@ -434,17 +457,24 @@ export const despesasEmpenhoItens = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     empenhoId: bigint('empenho_id', { mode: 'number' }).notNull().references(() => despesasEmpenhos.id),
     sequencial: int('sequencial').notNull(),
-    subelementoDespesaId: bigint('subelemento_despesa_id', { mode: 'number' }).references(() => subelementosDespesa.id),
+    // Removido o .references() para evitar o nome longo
+    subelementoDespesaId: bigint('subelemento_despesa_id', { mode: 'number' }),
     descricao: text('descricao').notNull(),
     quantidade: decimal('quantidade', { precision: 14, scale: 4 }).notNull(),
     valorUnitario: decimal('valor_unitario', { precision: 15, scale: 2 }).notNull(),
     valorTotal: decimal('valor_total', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_emp_itens_empenho').on(table.empenhoId),
     index('idx_emp_itens_subelemento').on(table.subelementoDespesaId),
+    // Chave estrangeira declarada com nome curto
+    foreignKey({
+      name: 'fk_dei_subelemento',
+      columns: [table.subelementoDespesaId],
+      foreignColumns: [subelementosDespesa.id],
+    }),
   ]
 );
 
@@ -461,7 +491,7 @@ export const despesasLiquidacoes = mysqlTable(
     observacao: text('observacao'),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_liq_ug').on(table.unidadeGestoraId),
@@ -475,8 +505,9 @@ export const despesasLiquidacaoEmpenhos = mysqlTable(
   'despesas_liquidacao_empenhos',
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-    liquidacaoId: bigint('liquidacao_id', { mode: 'number' }).notNull().references(() => despesasLiquidacoes.id),
-    empenhoId: bigint('empenho_id', { mode: 'number' }).notNull().references(() => despesasEmpenhos.id),
+    // Removido .references()
+    liquidacaoId: bigint('liquidacao_id', { mode: 'number' }).notNull(),
+    empenhoId: bigint('empenho_id', { mode: 'number' }).notNull(),
     naturezaDespesaCompleta: varchar('natureza_despesa_completa', { length: 30 }),
     subitem: varchar('subitem', { length: 30 }),
     valorLiquidado: decimal('valor_liquidado', { precision: 18, scale: 2 }).notNull(),
@@ -484,11 +515,22 @@ export const despesasLiquidacaoEmpenhos = mysqlTable(
     valorRestosAPagarCancelado: decimal('valor_restos_a_pagar_cancelado', { precision: 18, scale: 2 }),
     valorRestosAPagarPagos: decimal('valor_restos_a_pagar_pagos', { precision: 18, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_liq_emp_liquidacao').on(table.liquidacaoId),
     index('idx_liq_emp_empenho').on(table.empenhoId),
+    // Nomes curtos para as chaves estrangeiras
+    foreignKey({
+      name: 'fk_dle_liquidacao',
+      columns: [table.liquidacaoId],
+      foreignColumns: [despesasLiquidacoes.id],
+    }),
+    foreignKey({
+      name: 'fk_dle_empenho',
+      columns: [table.empenhoId],
+      foreignColumns: [despesasEmpenhos.id],
+    }),
   ]
 );
 
@@ -510,7 +552,7 @@ export const despesasPagamentos = mysqlTable(
     valorPagamentoConvertido: decimal('valor_pagamento_convertido', { precision: 18, scale: 2 }),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_pag_ug').on(table.unidadeGestoraId),
@@ -524,8 +566,9 @@ export const despesasPagamentoEmpenhos = mysqlTable(
   'despesas_pagamento_empenhos',
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-    pagamentoId: bigint('pagamento_id', { mode: 'number' }).notNull().references(() => despesasPagamentos.id),
-    empenhoId: bigint('empenho_id', { mode: 'number' }).notNull().references(() => despesasEmpenhos.id),
+    // Removido .references()
+    pagamentoId: bigint('pagamento_id', { mode: 'number' }).notNull(),
+    empenhoId: bigint('empenho_id', { mode: 'number' }).notNull(),
     naturezaDespesaCompleta: varchar('natureza_despesa_completa', { length: 30 }),
     subitem: varchar('subitem', { length: 30 }),
     valorPago: decimal('valor_pago', { precision: 18, scale: 2 }).notNull(),
@@ -533,11 +576,22 @@ export const despesasPagamentoEmpenhos = mysqlTable(
     valorRestosAPagarCancelado: decimal('valor_restos_a_pagar_cancelado', { precision: 18, scale: 2 }),
     valorRestosAPagarPagos: decimal('valor_restos_a_pagar_pagos', { precision: 18, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_pag_emp_pagamento').on(table.pagamentoId),
     index('idx_pag_emp_empenho').on(table.empenhoId),
+    // Nomes curtos para as chaves estrangeiras
+    foreignKey({
+      name: 'fk_dpe_pagamento',
+      columns: [table.pagamentoId],
+      foreignColumns: [despesasPagamentos.id],
+    }),
+    foreignKey({
+      name: 'fk_dpe_empenho',
+      columns: [table.empenhoId],
+      foreignColumns: [despesasEmpenhos.id],
+    }),
   ]
 );
 
@@ -550,7 +604,10 @@ export const orcamentoDespesa = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     exercicio: char('exercicio', { length: 4 }).notNull(),
-    unidadeOrcamentariaId: bigint('unidade_orcamentaria_id', { mode: 'number' }).references(() => unidadesGestoras.id),
+    
+    // Removido .references() para evitar o erro de limite de caracteres
+    unidadeOrcamentariaId: bigint('unidade_orcamentaria_id', { mode: 'number' }),
+    
     acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
     categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
     grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
@@ -561,12 +618,19 @@ export const orcamentoDespesa = mysqlTable(
     orcamentoRealizado: decimal('orcamento_realizado', { precision: 18, scale: 2 }).notNull(),
     percentualRealizado: decimal('percentual_realizado', { precision: 7, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_orc_desp_exercicio').on(table.exercicio),
     index('idx_orc_desp_uo').on(table.unidadeOrcamentariaId),
     index('idx_orc_desp_acao').on(table.acaoOrcamentariaId),
+    
+    // Declarando a chave estrangeira manualmente com nome curto
+    foreignKey({
+      name: 'fk_orc_desp_uo',
+      columns: [table.unidadeOrcamentariaId],
+      foreignColumns: [unidadesGestoras.id],
+    }),
   ]
 );
 
@@ -585,7 +649,7 @@ export const receitas = mysqlTable(
     percentualRealizado: decimal('percentual_realizado', { precision: 7, scale: 2 }).notNull(),
     dataLancamento: date('data_lancamento', { mode: 'string' }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_receitas_exercicio').on(table.exercicio),
@@ -601,17 +665,27 @@ export const recursosTransferidos = mysqlTable(
     tipoTransferencia: varchar('tipo_transferencia', { length: 100 }).notNull(),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
     unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }).references(() => unidadesGestoras.id),
-    acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
+    
+    // Removido .references() para evitar o erro de limite de caracteres
+    acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }),
+    
     favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }).references(() => pessoasFisicas.id),
     favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
     valorTransferido: decimal('valor_transferido', { precision: 18, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_rec_transf_ano_mes').on(table.anoMes),
     index('idx_rec_transf_municipio').on(table.municipioId),
     index('idx_rec_transf_ug').on(table.unidadeGestoraId),
+    
+    // Declarando a chave estrangeira manualmente com nome curto
+    foreignKey({
+      name: 'fk_rec_transf_acao',
+      columns: [table.acaoOrcamentariaId],
+      foreignColumns: [acoesOrcamentarias.id],
+    }),
   ]
 );
 
@@ -635,7 +709,7 @@ export const licitacoes = mysqlTable(
     valorLicitacao: decimal('valor_licitacao', { precision: 15, scale: 2 }),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_licitacao_ug').on(table.unidadeGestoraId),
@@ -652,7 +726,7 @@ export const licitacaoItens = mysqlTable(
     codigoItemCompra: varchar('codigo_item_compra', { length: 30 }).notNull(),
     descricaoItemCompra: text('descricao_item_compra').notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_lic_itens_licitacao').on(table.licitacaoId),
@@ -668,7 +742,7 @@ export const licitacaoParticipantes = mysqlTable(
     participanteId: bigint('participante_id', { mode: 'number' }).notNull().references(() => pessoasJuridicas.id),
     flagVencedor: boolean('flag_vencedor').default(false).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_lic_part_licitacao').on(table.licitacaoId),
@@ -696,7 +770,7 @@ export const contratos = mysqlTable(
     valorFinalCompra: decimal('valor_final_compra', { precision: 15, scale: 2 }).notNull(),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_contratos_ug').on(table.unidadeGestoraId),
@@ -716,7 +790,7 @@ export const contratoItens = mysqlTable(
     quantidade: decimal('quantidade', { precision: 14, scale: 4 }).notNull(),
     valorItem: decimal('valor_item', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_contrato_itens_contrato').on(table.contratoId),
@@ -732,7 +806,7 @@ export const contratoTermosAditivos = mysqlTable(
     dataPublicacao: date('data_publicacao', { mode: 'string' }).notNull(),
     objeto: text('objeto').notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_termo_aditivo_contrato').on(table.contratoId),
@@ -767,7 +841,7 @@ export const convenios = mysqlTable(
     valorUltimaLiberacao: decimal('valor_ultima_liberacao', { precision: 15, scale: 2 }),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_convenios_ug').on(table.unidadeGestoraConcedenteId),
@@ -785,7 +859,7 @@ export const convenioOrdensBancarias = mysqlTable(
     dataEmissaoOb: date('data_emissao_ob', { mode: 'string' }).notNull(),
     valorLiberado: decimal('valor_liberado', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_convenio_ob_convenio').on(table.convenioId),
@@ -811,7 +885,7 @@ export const cartaoPagamentoCpgf = mysqlTable(
     dataTransacao: date('data_transacao', { mode: 'string' }).notNull(),
     valorTransacao: decimal('valor_transacao', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_cpgf_ug').on(table.unidadeGestoraId),
@@ -833,7 +907,7 @@ export const cartaoPagamentoCpcc = mysqlTable(
     dataTransacao: date('data_transacao', { mode: 'string' }).notNull(),
     valorTransacao: decimal('valor_transacao', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_cpcc_ug').on(table.unidadeGestoraId),
@@ -847,21 +921,36 @@ export const cartaoPagamentoDefesaCivil = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     ufSigla: char('uf_sigla', { length: 2 }).references(() => estados.sigla),
     convenioId: bigint('convenio_id', { mode: 'number' }).references(() => convenios.id),
-    convenenteId: bigint('convenente_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
+
+    // Remova o .references() destas duas colunas:
+    convenenteId: bigint('convenente_id', { mode: 'number' }),
+    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }),
+
     portadorId: bigint('portador_id', { mode: 'number' }).notNull().references(() => pessoasFisicas.id),
-    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
     anoExtrato: char('ano_extrato', { length: 4 }).notNull(),
     mesExtrato: char('mes_extrato', { length: 2 }).notNull(),
     transacao: varchar('transacao', { length: 100 }).notNull(),
     dataTransacao: date('data_transacao', { mode: 'string' }).notNull(),
     valorTransacao: decimal('valor_transacao', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_cpdc_uf').on(table.ufSigla),
     index('idx_cpdc_convenio').on(table.convenioId),
     index('idx_cpdc_portador').on(table.portadorId),
+
+    // Defina as chaves estrangeiras com nomes curtos aqui:
+    foreignKey({
+      name: 'fk_cpdc_convenente',
+      columns: [table.convenenteId],
+      foreignColumns: [pessoasJuridicas.id],
+    }),
+    foreignKey({
+      name: 'fk_cpdc_fav_pj',
+      columns: [table.favorecidoPjId],
+      foreignColumns: [pessoasJuridicas.id],
+    }),
   ]
 );
 
@@ -887,7 +976,7 @@ export const notasFiscais = mysqlTable(
     valorNotaFiscal: decimal('valor_nota_fiscal', { precision: 15, scale: 2 }).notNull(),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_nfe_emitente').on(table.emitenteId),
@@ -907,7 +996,7 @@ export const notaFiscalEventos = mysqlTable(
     descricaoEvento: text('descricao_evento'),
     motivoEvento: text('motivo_evento'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_nfe_eventos_nf').on(table.notaFiscalId),
@@ -929,7 +1018,7 @@ export const notaFiscalItens = mysqlTable(
     valorUnitario: decimal('valor_unitario', { precision: 15, scale: 2 }).notNull(),
     valorTotal: decimal('valor_total', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_nfe_itens_nf').on(table.notaFiscalId),
@@ -960,7 +1049,7 @@ export const viagens = mysqlTable(
     valorOutrosGastos: decimal('valor_outros_gastos', { precision: 15, scale: 2 }).notNull(),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_viagens_viajante').on(table.viajanteId),
@@ -987,7 +1076,7 @@ export const viagemTrechos = mysqlTable(
     numeroDiarias: int('numero_diarias').notNull(),
     missao: boolean('missao').default(false).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_viagem_trechos_viagem').on(table.viagemId),
@@ -1008,7 +1097,7 @@ export const viagemPassagens = mysqlTable(
     valorPassagem: decimal('valor_passagem', { precision: 15, scale: 2 }).notNull(),
     taxaServico: decimal('taxa_servico', { precision: 15, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_viagem_passagens_viagem').on(table.viagemId),
@@ -1040,7 +1129,7 @@ export const servidores = mysqlTable(
     jornadaDeTrabalho: varchar('jornada_de_trabalho', { length: 50 }),
     dataIngressoOrgao: date('data_ingresso_orgao', { mode: 'string' }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_servidores_pf').on(table.pessoaFisicaId),
@@ -1069,7 +1158,7 @@ export const servidoresRemuneracoes = mysqlTable(
     totalVerbasIndenizatoriasRs: decimal('total_verbas_indenizatorias_rs', { precision: 15, scale: 2 }),
     totalHonorariosJetons: decimal('total_honorarios_jetons', { precision: 15, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_serv_remun_servidor').on(table.servidorId),
@@ -1085,7 +1174,7 @@ export const servidoresAfastamentos = mysqlTable(
     dataInicioAfastamento: date('data_inicio_afastamento', { mode: 'string' }).notNull(),
     dataFimAfastamento: date('data_fim_afastamento', { mode: 'string' }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_serv_afast_servidor').on(table.servidorId),
@@ -1103,7 +1192,7 @@ export const servidoresJetons = mysqlTable(
     empresa: varchar('empresa', { length: 255 }).notNull(),
     valor: decimal('valor', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_jetons_servidor').on(table.servidorId),
@@ -1120,7 +1209,7 @@ export const servidoresHonorarios = mysqlTable(
     observacoes: text('observacoes'),
     valor: decimal('valor', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_honorarios_servidor').on(table.servidorId),
@@ -1139,7 +1228,7 @@ export const programasSociais = mysqlTable(
     nome: varchar('nome', { length: 150 }).notNull(),
     descricao: text('descricao'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
 );
 
@@ -1160,7 +1249,7 @@ export const beneficioPagamentos = mysqlTable(
     concedidoJudicialmente: boolean('concedido_judicialmente'),
     numeroBeneficio: varchar('numero_beneficio', { length: 30 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_ben_pag_programa').on(table.programaId),
@@ -1196,7 +1285,7 @@ export const sancoesAdministrativas = mysqlTable(
     fundamentacaoLegal: text('fundamentacao_legal'),
     observacoes: text('observacoes'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_sancoes_tipo').on(table.tipoCadastro),
@@ -1220,7 +1309,7 @@ export const acordosLeniencia = mysqlTable(
     situacaoAcordo: varchar('situacao_acordo', { length: 100 }),
     termosAcordo: text('termos_acordo'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_acordo_empresa').on(table.empresaId),
@@ -1236,7 +1325,7 @@ export const acordoLenienciaEfeitos = mysqlTable(
     efeitoAcordo: varchar('efeito_acordo', { length: 255 }).notNull(),
     complemento: text('complemento'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_acordo_efeitos_acordo').on(table.acordoId),
@@ -1256,7 +1345,7 @@ export const pep = mysqlTable(
     dataFimExercicio: date('data_fim_exercicio', { mode: 'string' }),
     dataFimCarencia: date('data_fim_carencia', { mode: 'string' }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_pep_pf').on(table.pessoaFisicaId),
@@ -1279,10 +1368,16 @@ export const emendasParlamentares = mysqlTable(
     numeroEmenda: varchar('numero_emenda', { length: 30 }),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
     funcaoId: bigint('funcao_id', { mode: 'number' }).references(() => funcoesOrcamentarias.id),
-    subfuncaoId: bigint('subfuncao_id', { mode: 'number' }).references(() => subfuncoesOrcamentarias.id),
+
+    // Removido .references()
+    subfuncaoId: bigint('subfuncao_id', { mode: 'number' }),
+
     programaId: bigint('programa_id', { mode: 'number' }).references(() => programasOrcamentarios.id),
     acaoId: bigint('acao_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
-    planoOrcamentarioId: bigint('plano_orcamentario_id', { mode: 'number' }).references(() => planosOrcamentarios.id),
+
+    // Removido .references()
+    planoOrcamentarioId: bigint('plano_orcamentario_id', { mode: 'number' }),
+
     valorEmpenhado: decimal('valor_empenhado', { precision: 18, scale: 2 }).notNull(),
     valorLiquidado: decimal('valor_liquidado', { precision: 18, scale: 2 }).notNull(),
     valorPago: decimal('valor_pago', { precision: 18, scale: 2 }).notNull(),
@@ -1290,12 +1385,24 @@ export const emendasParlamentares = mysqlTable(
     valorRestosAPagarCancelados: decimal('valor_restos_a_pagar_cancelados', { precision: 18, scale: 2 }),
     valorRestosAPagarPagos: decimal('valor_restos_a_pagar_pagos', { precision: 18, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_emendas_ano').on(table.anoEmenda),
     index('idx_emendas_autor').on(table.autorEmenda),
     index('idx_emendas_municipio').on(table.municipioId),
+
+    // Chaves estrangeiras com nomes curtos
+    foreignKey({
+      name: 'fk_ep_subfuncao',
+      columns: [table.subfuncaoId],
+      foreignColumns: [subfuncoesOrcamentarias.id],
+    }),
+    foreignKey({
+      name: 'fk_ep_plano_orc',
+      columns: [table.planoOrcamentarioId],
+      foreignColumns: [planosOrcamentarios.id],
+    }),
   ]
 );
 
@@ -1312,7 +1419,7 @@ export const emendasApoiamentos = mysqlTable(
     valorCancelado: decimal('valor_cancelado', { precision: 18, scale: 2 }),
     valorPago: decimal('valor_pago', { precision: 18, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_apoio_emenda').on(table.emendaId),
@@ -1329,13 +1436,23 @@ export const imoveisFuncionais = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     endereco: varchar('endereco', { length: 255 }).notNull(),
-    orgaoResponsavelId: bigint('orgao_responsavel_id', { mode: 'number' }).references(() => orgaosSubordinados.id),
+
+    // Removido o .references() para evitar o nome longo automático
+    orgaoResponsavelId: bigint('orgao_responsavel_id', { mode: 'number' }),
+
     situacao: varchar('situacao', { length: 100 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_imoveis_orgao').on(table.orgaoResponsavelId),
+
+    // Declarando a chave estrangeira manualmente com nome curto
+    foreignKey({
+      name: 'fk_imoveis_orgao_resp',
+      columns: [table.orgaoResponsavelId],
+      foreignColumns: [orgaosSubordinados.id],
+    }),
   ]
 );
 
@@ -1343,17 +1460,33 @@ export const imoveisFuncionaisPermissionarios = mysqlTable(
   'imoveis_funcionais_permissionarios',
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-    imovelId: bigint('imovel_id', { mode: 'number' }).references(() => imoveisFuncionais.id),
-    permissionarioId: bigint('permissionario_id', { mode: 'number' }).notNull().references(() => pessoasFisicas.id),
+    imovelId: bigint('imovel_id', { mode: 'number' }),
+    permissionarioId: bigint('permissionario_id', { mode: 'number' }).notNull(),
     cargoFuncao: varchar('cargo_funcao', { length: 255 }),
-    orgaoExercicioId: bigint('orgao_exercicio_id', { mode: 'number' }).references(() => orgaosSubordinados.id),
+    orgaoExercicioId: bigint('orgao_exercicio_id', { mode: 'number' }),
     dataOcupacao: date('data_ocupacao', { mode: 'string' }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_perm_imovel').on(table.imovelId),
     index('idx_perm_permissionario').on(table.permissionarioId),
+    // Nomes curtos para as chaves estrangeiras
+    foreignKey({
+      name: 'fk_ifp_imovel',
+      columns: [table.imovelId],
+      foreignColumns: [imoveisFuncionais.id],
+    }),
+    foreignKey({
+      name: 'fk_ifp_permissionario',
+      columns: [table.permissionarioId],
+      foreignColumns: [pessoasFisicas.id],
+    }),
+    foreignKey({
+      name: 'fk_ifp_orgao',
+      columns: [table.orgaoExercicioId],
+      foreignColumns: [orgaosSubordinados.id],
+    }),
   ]
 );
 
@@ -1375,7 +1508,7 @@ export const renunciasFiscais = mysqlTable(
     formaTributacao: varchar('forma_tributacao', { length: 100 }),
     valorRenunciaFiscal: decimal('valor_renuncia_fiscal', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_renuncias_ano').on(table.anoCalendario),
@@ -1394,7 +1527,7 @@ export const empresasHabilitadas = mysqlTable(
     inicioHabilitacao: date('inicio_habilitacao', { mode: 'string' }),
     fimHabilitacao: date('fim_habilitacao', { mode: 'string' }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).onUpdateNow().notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_emp_hab_empresa').on(table.empresaId),

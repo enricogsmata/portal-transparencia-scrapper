@@ -5,6 +5,9 @@
     "bronze-migrate": "drizzle-kit migrate --config=drizzle.bronze.config.ts",
     "bronze-generate": "drizzle-kit generate --config=drizzle.bronze.config.ts",
     "bronze-push": "drizzle-kit push --config=drizzle.bronze.config.ts",
+    "silver-migrate": "drizzle-kit migrate --config=drizzle.silver.config.ts",
+    "silver-generate": "drizzle-kit generate --config=drizzle.silver.config.ts",
+    "silver-push": "drizzle-kit push --config=drizzle.silver.config.ts",
     "cli": "tsx src/index-cli.ts",
     "script": "tsx src/index.ts"
   },
