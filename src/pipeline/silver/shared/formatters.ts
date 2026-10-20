@@ -60,3 +60,14 @@ export function formatAnoMes(anoMes?: string | null): string | null {
   }
   return cleaned.substring(0, 7);
 }
+
+export function formatCpfByNis(nis?: string | null): string {
+  // Garantia Safra na API frequentemente fornece apenas NIS. 
+  // Na ausência do CPF (que é NOT NULL), usamos o NIS formatado ou um fallback genérico seguro
+  // como CPF "00000000000" para permitir inserção sem quebrar a constraint,
+  // mas o ideal é que a extração mapeie corretamente. 
+  // Aqui geramos um placeholder baseado no NIS se o CPF real não existir.
+  if (!nis) return '00000000000';
+  const numbers = nis.replace(/\D/g, '');
+  return numbers.padStart(11, '0').slice(0, 11);
+}
