@@ -420,6 +420,7 @@
           "gestoes",
           "pessoas_fisicas",
           "pessoas_juridicas",
+          "bancos",
           "funcoes_orcamentarias",
           "subfuncoes_orcamentarias",
           "programas_orcamentarios",
@@ -435,16 +436,21 @@
         "entities": [
           "despesas_empenhos",
           "despesas_empenho_itens",
+          "despesas_empenho_item_historico",
           "despesas_liquidacoes",
           "despesas_liquidacao_empenhos",
           "despesas_pagamentos",
-          "despesas_pagamento_empenhos"
+          "despesas_pagamento_empenhos",
+          "despesas_pagamento_favorecidos_finais",
+          "despesas_pagamento_lista_bancos",
+          "despesas_pagamento_lista_faturas",
+          "despesas_pagamento_lista_precatorios"
         ]
       },
       "normalizationDetails": {
-        "1FN": "Valores federais de grande porte tipados em decimal(18,2); datas Siafi em date; flags em boolean.",
-        "2FN": "Itens de empenho e listas de pagamento dependem exclusivamente da FK de seu cabeçalho.",
-        "3FN": "Eliminação maciça de 15 campos orçamentários repetidos em todas as tabelas, substituídos por FKs das dimensões."
+        "1FN": "Valores federais e transações monetárias em decimal(18,2) ou decimal(15,2), quantidades em decimal(14,4), datas em date e atributos multivalorados/listas decompostos em registros atômicos.",
+        "2FN": "Itens de empenho e suas evoluções históricas vinculados ao ID do item pai, enquanto as listas de desembolso (bancos, faturas, precatórios e favorecidos finais) dependem exclusivamente da FK de seu cabeçalho de pagamento.",
+        "3FN": "Criação da dimensão 'bancos' para remover a dependência transitiva de código/nome; favorecidos finais referenciando 'pessoas_fisicas'/'pessoas_juridicas'; eliminação da redundância de data de emissão e exercício fiscal nas tabelas filhas de detalhamento."
       }
     },
     {

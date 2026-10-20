@@ -6,14 +6,14 @@ import { new_logger } from "./services/logs.js";
 const logger = new_logger(import.meta.url);
 
 async function run() {
-    /*await runScrapper().catch(err => {
+    await runScrapper().catch(err => {
         logger.logger.fatal(err);
         process.exit(1);
-    });*/
+    });
     
-    //await runProcessors();
+    await runProcessors();
 
-    await runSilverOrchestrator();
+    //await runSilverOrchestrator();
     return;
 }
 

@@ -41,23 +41,6 @@ export const logs = mysqlTable(
   ]
 );
 
-export const fileDownloadHistory = mysqlTable(
-  'file_download_history',
-  {
-    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-    fileName: varchar('file_name', { length: 255 }).notNull().unique(),
-    moduleName: varchar('module_name', { length: 100 }).notNull(),
-    frequency: varchar('frequency', { length: 50 }).notNull(),
-    downloadedAt: timestamp('downloaded_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
-    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
-  },
-  (table) => [
-    index('idx_fdh_module_name').on(table.moduleName),
-    index('idx_fdh_downloaded_at').on(table.downloadedAt),
-  ]
-);
-
 // ============================================================================
 // 2. DIMENSÕES GEOGRÁFICAS E TERRITORIAIS (3FN)
 // ============================================================================
@@ -1689,3 +1672,168 @@ export const beneficioPagamentosRelations = relations(beneficioPagamentos, ({ on
     references: [municipios.id],
   }),
 }));
+
+// ============================================================================
+// DIMENSÃO DE INSTITUIÇÕES FINANCEIRAS (3FN)
+// ============================================================================
+
+export const bancos = mysqlTable(
+  'bancos',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    codigo: varchar('codigo', { length: 20 }).notNull().unique(),
+    nome: varchar('nome', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_bancos_codigo').on(table.codigo),
+  ]
+);
+
+// ============================================================================
+// HISTÓRICO DE ITENS DE EMPENHO (3FN)
+// ============================================================================
+
+export const despesasEmpenhoItemHistorico = mysqlTable(
+  'despesas_empenho_item_historico',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    empenhoItemId: bigint('empenho_item_id', { mode: 'number' }).notNull(),
+    tipoOperacao: varchar('tipo_operacao', { length: 100 }).notNull(),
+    dataOperacao: date('data_operacao', { mode: 'string' }).notNull(),
+    quantidadeItem: decimal('quantidade_item', { precision: 14, scale: 4 }).notNull(),
+    valorUnitarioItem: decimal('valor_unitario_item', { precision: 15, scale: 2 }).notNull(),
+    valorTotalItem: decimal('valor_total_item', { precision: 15, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_deih_item').on(table.empenhoItemId),
+    index('idx_deih_data').on(table.dataOperacao),
+    index('idx_deih_tipo_op').on(table.tipoOperacao),
+    foreignKey({
+      name: 'fk_deih_empenho_item',
+      columns: [table.empenhoItemId],
+      foreignColumns: [despesasEmpenhoItens.id],
+    }),
+  ]
+);
+
+// ============================================================================
+// LISTAS E DETALHAMENTOS DE PAGAMENTOS (3FN)
+// ============================================================================
+
+export const despesasPagamentoFavorecidosFinais = mysqlTable(
+  'despesas_pagamento_favorecidos_finais',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    pagamentoId: bigint('pagamento_id', { mode: 'number' }).notNull(),
+    codigoLista: varchar('codigo_lista', { length: 50 }).notNull(),
+    favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }),
+    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }),
+    valorPagamento: decimal('valor_pagamento', { precision: 18, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_dpff_pagamento').on(table.pagamentoId),
+    index('idx_dpff_codigo_lista').on(table.codigoLista),
+    index('idx_dpff_fav_pf').on(table.favorecidoPfId),
+    index('idx_dpff_fav_pj').on(table.favorecidoPjId),
+    foreignKey({
+      name: 'fk_dpff_pagamento',
+      columns: [table.pagamentoId],
+      foreignColumns: [despesasPagamentos.id],
+    }),
+    foreignKey({
+      name: 'fk_dpff_fav_pf',
+      columns: [table.favorecidoPfId],
+      foreignColumns: [pessoasFisicas.id],
+    }),
+    foreignKey({
+      name: 'fk_dpff_fav_pj',
+      columns: [table.favorecidoPjId],
+      foreignColumns: [pessoasJuridicas.id],
+    }),
+  ]
+);
+
+export const despesasPagamentoListaBancos = mysqlTable(
+  'despesas_pagamento_lista_bancos',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    pagamentoId: bigint('pagamento_id', { mode: 'number' }).notNull(),
+    codigoLista: varchar('codigo_lista', { length: 50 }).notNull(),
+    bancoId: bigint('banco_id', { mode: 'number' }).notNull(),
+    agencia: varchar('agencia', { length: 30 }).notNull(),
+    valor: decimal('valor', { precision: 18, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_dplb_pagamento').on(table.pagamentoId),
+    index('idx_dplb_lista').on(table.codigoLista),
+    index('idx_dplb_banco').on(table.bancoId),
+    foreignKey({
+      name: 'fk_dplb_pagamento',
+      columns: [table.pagamentoId],
+      foreignColumns: [despesasPagamentos.id],
+    }),
+    foreignKey({
+      name: 'fk_dplb_banco',
+      columns: [table.bancoId],
+      foreignColumns: [bancos.id],
+    }),
+  ]
+);
+
+export const despesasPagamentoListaFaturas = mysqlTable(
+  'despesas_pagamento_lista_faturas',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    pagamentoId: bigint('pagamento_id', { mode: 'number' }).notNull(),
+    codigoLista: varchar('codigo_lista', { length: 50 }).notNull(),
+    sequencialFatura: int('sequencial_fatura').notNull(),
+    valorLancamento: decimal('valor_lancamento', { precision: 18, scale: 2 }).notNull(),
+    valorDesconto: decimal('valor_desconto', { precision: 18, scale: 2 }).default('0.00').notNull(),
+    valorJuros: decimal('valor_juros', { precision: 18, scale: 2 }).default('0.00').notNull(),
+    valorDeducao: decimal('valor_deducao', { precision: 18, scale: 2 }).default('0.00').notNull(),
+    valorAcrescimo: decimal('valor_acrescimo', { precision: 18, scale: 2 }).default('0.00').notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_dplf_pagamento').on(table.pagamentoId),
+    index('idx_dplf_lista').on(table.codigoLista),
+    index('idx_dplf_seq').on(table.sequencialFatura),
+    foreignKey({
+      name: 'fk_dplf_pagamento',
+      columns: [table.pagamentoId],
+      foreignColumns: [despesasPagamentos.id],
+    }),
+  ]
+);
+
+export const despesasPagamentoListaPrecatorios = mysqlTable(
+  'despesas_pagamento_lista_precatorios',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    pagamentoId: bigint('pagamento_id', { mode: 'number' }).notNull(),
+    codigoLista: varchar('codigo_lista', { length: 50 }).notNull(),
+    numeroParcela: varchar('numero_parcela', { length: 30 }).notNull(),
+    valorPrecatorio: decimal('valor_precatorio', { precision: 18, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_dplp_pagamento').on(table.pagamentoId),
+    index('idx_dplp_lista').on(table.codigoLista),
+    index('idx_dplp_parcela').on(table.numeroParcela),
+    foreignKey({
+      name: 'fk_dplp_pagamento',
+      columns: [table.pagamentoId],
+      foreignColumns: [despesasPagamentos.id],
+    }),
+  ]
+);
