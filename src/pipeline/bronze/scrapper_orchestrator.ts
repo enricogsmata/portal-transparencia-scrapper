@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { addMonths, addDays, addHours, isAfter } from "date-fns";
 import { bronze_db } from "../../database/bronze_connection.js";
 import { FileDownloadHistory } from "../../database/bronze_schema.js";
+import { scrapeSiafiMunicipios } from "./processors/siafi-scrapper.js";
 const logger = new_logger(import.meta.url);
 const BASE_URL = "https://portaldatransparencia.gov.br/download-de-dados";
 
@@ -383,6 +384,7 @@ export async function runScrapper(options?: { oneFilePerModule?: boolean }) {
         const modules = await fetchPortalData();
         await ensureDirectories(modules);
         await fetchFilesForModule(modules, options);
+        await scrapeSiafiMunicipios();
 
         log.info("Orquestração do scrapper finalizada com sucesso");
         return;
