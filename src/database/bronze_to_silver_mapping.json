@@ -525,13 +525,15 @@
           "convenios"
         ],
         "entities": [
-          "emendas_parlamentares"
+          "emendas_parlamentares",
+          "emendas_parlamentares_convenios",
+          "emendas_parlamentares_favorecidos"
         ]
       },
       "normalizationDetails": {
-        "1FN": "Valores orçamentários em decimal(18,2); ano da emenda em char(4).",
-        "2FN": "Convênios e favorecidos vinculados à emenda mestre via FK codigo_emenda.",
-        "3FN": "Classificações de função, subfunção, programa, ação e município normalizadas em dimensões."
+        "1FN": "Valores orçamentários, de repasse e de convênios convertidos para decimal(18,2); datas e períodos formatados (date ou varchar(7)).",
+        "2FN": "Convênios e favorecidos vinculados à emenda mestre via FK da tabela de emendas_parlamentares.",
+        "3FN": "Classificações orçamentárias (função, subfunção), detalhes de convênios (já centralizados na dimensão convenios), informações sobre credores (PF/PJ) e municípios extraídos e normalizados em dimensões e FKs."
       }
     },
     {

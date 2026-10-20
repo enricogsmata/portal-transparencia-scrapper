@@ -1915,3 +1915,106 @@ export const execucaoDespesasRelations = relations(execucaoDespesas, ({ one }) =
     references: [elementosDespesa.id],
   }),
 }));
+
+// ============================================================================
+// CONVÊNIOS E FAVORECIDOS DE EMENDAS PARLAMENTARES (3FN)
+// ============================================================================
+
+export const emendasParlamentaresConvenios = mysqlTable(
+  'emendas_parlamentares_convenios',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    emendaId: bigint('emenda_id', { mode: 'number' }).notNull(),
+    convenioId: bigint('convenio_id', { mode: 'number' }),
+    funcaoId: bigint('funcao_id', { mode: 'number' }).references(() => funcoesOrcamentarias.id),
+    subfuncaoId: bigint('subfuncao_id', { mode: 'number' }).references(() => subfuncoesOrcamentarias.id),
+    localidadeGasto: varchar('localidade_gasto', { length: 255 }),
+    dataPublicacaoConvenio: date('data_publicacao_convenio', { mode: 'string' }),
+    valorConvenio: decimal('valor_convenio', { precision: 18, scale: 2 }).notNull(),
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_epc_emenda').on(table.emendaId),
+    index('idx_epc_convenio').on(table.convenioId),
+    index('idx_epc_funcao').on(table.funcaoId),
+    // Declaração de FKs com nomes curtos para evitar limites do MySQL
+    foreignKey({
+      name: 'fk_epc_emenda',
+      columns: [table.emendaId],
+      foreignColumns: [emendasParlamentares.id],
+    }),
+    foreignKey({
+      name: 'fk_epc_convenio',
+      columns: [table.convenioId],
+      foreignColumns: [convenios.id],
+    }),
+  ]
+);
+
+export const emendasParlamentaresFavorecidos = mysqlTable(
+  'emendas_parlamentares_favorecidos',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    emendaId: bigint('emenda_id', { mode: 'number' }).notNull(),
+    favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }).references(() => pessoasFisicas.id),
+    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
+    municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
+    anoMes: varchar('ano_mes', { length: 7 }),
+    valorRecebido: decimal('valor_recebido', { precision: 18, scale: 2 }).notNull(),
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_epf_emenda').on(table.emendaId),
+    index('idx_epf_fav_pf').on(table.favorecidoPfId),
+    index('idx_epf_fav_pj').on(table.favorecidoPjId),
+    index('idx_epf_municipio').on(table.municipioId),
+    // Declaração de FKs com nomes curtos para evitar limites do MySQL
+    foreignKey({
+      name: 'fk_epf_emenda',
+      columns: [table.emendaId],
+      foreignColumns: [emendasParlamentares.id],
+    }),
+  ]
+);
+
+export const emendasParlamentaresConveniosRelations = relations(emendasParlamentaresConvenios, ({ one }) => ({
+  emenda: one(emendasParlamentares, {
+    fields: [emendasParlamentaresConvenios.emendaId],
+    references: [emendasParlamentares.id],
+  }),
+  convenio: one(convenios, {
+    fields: [emendasParlamentaresConvenios.convenioId],
+    references: [convenios.id],
+  }),
+  funcao: one(funcoesOrcamentarias, {
+    fields: [emendasParlamentaresConvenios.funcaoId],
+    references: [funcoesOrcamentarias.id],
+  }),
+  subfuncao: one(subfuncoesOrcamentarias, {
+    fields: [emendasParlamentaresConvenios.subfuncaoId],
+    references: [subfuncoesOrcamentarias.id],
+  }),
+}));
+
+export const emendasParlamentaresFavorecidosRelations = relations(emendasParlamentaresFavorecidos, ({ one }) => ({
+  emenda: one(emendasParlamentares, {
+    fields: [emendasParlamentaresFavorecidos.emendaId],
+    references: [emendasParlamentares.id],
+  }),
+  favorecidoPf: one(pessoasFisicas, {
+    fields: [emendasParlamentaresFavorecidos.favorecidoPfId],
+    references: [pessoasFisicas.id],
+  }),
+  favorecidoPj: one(pessoasJuridicas, {
+    fields: [emendasParlamentaresFavorecidos.favorecidoPjId],
+    references: [pessoasJuridicas.id],
+  }),
+  municipio: one(municipios, {
+    fields: [emendasParlamentaresFavorecidos.municipioId],
+    references: [municipios.id],
+  }),
+}));
