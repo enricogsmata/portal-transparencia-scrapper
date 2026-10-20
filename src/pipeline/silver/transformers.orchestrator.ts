@@ -1,7 +1,8 @@
 // src\pipeline\silver\transformers.orchestrator.ts
 import { new_logger } from '../../services/logs.js';
-import { processAcordosLeniencia } from './transformers/acordos-leniencia.js';
-import { processFavorecidosPj } from './transformers/favorecidos-pj.js';
+import { generateMunicipiosSeed } from '../bronze/processors/municipios-seed-generator.js';
+import { scrapeSiafiMunicipios } from '../bronze/processors/siafi-scrapper.js';
+import { generateEstadosSeed } from './seed/estados.seed.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -14,8 +15,9 @@ export async function runSilverOrchestrator() {
   const log = logger.forMethod('runSilverOrchestrator');
 
   const tasks: TransformerTask[] = [
-    { name: 'favorecidos-pj', execute: processFavorecidosPj },
-    { name: 'acordos-leniencia', execute: processAcordosLeniencia },
+    { name: 'siafi-municipios', execute: scrapeSiafiMunicipios },
+    { name: 'municipios-seed', execute: generateMunicipiosSeed },
+    { name: 'seed-estados', execute: generateEstadosSeed },
   ];
 
   log.info({ data: { totalTasks: tasks.length } }, 'Iniciando orquestração da camada Silver');
@@ -23,7 +25,7 @@ export async function runSilverOrchestrator() {
   for (const task of tasks) {
     log.info(`Iniciando processamento: ${task.name}`);
     const start = Date.now();
-    
+
     try {
       await task.execute();
       const durationMs = Date.now() - start;
@@ -36,3 +38,5 @@ export async function runSilverOrchestrator() {
 
   log.info('Orquestração da camada Silver finalizada com sucesso');
 }
+
+await runSilverOrchestrator();

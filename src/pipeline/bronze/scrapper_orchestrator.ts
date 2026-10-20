@@ -384,7 +384,6 @@ export async function runScrapper(options?: { oneFilePerModule?: boolean }) {
         const modules = await fetchPortalData();
         await ensureDirectories(modules);
         await fetchFilesForModule(modules, options);
-        await scrapeSiafiMunicipios();
 
         log.info("Orquestração do scrapper finalizada com sucesso");
         return;

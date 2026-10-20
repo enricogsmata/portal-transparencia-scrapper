@@ -1,40 +1,38 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
-import pino from 'pino';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
 const log = logger.forMethod('scrapeSiafiMunicipios');
 
 const BASE_URL = 'https://www.tesourotransparente.gov.br';
-const DATASETS_URL = `${BASE_URL}/ckan/dataset`;
+const DATASET_URL = `${BASE_URL}/ckan/dataset/lista-de-municipios-do-siafi`;
 const DESTINATION_DIR = path.join('src', 'files', 'municipios');
+
+async function fetchWithRetry(url: string, retries = 3, delayMs = 2000): Promise<Response> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Falha HTTP: ${response.status} ${response.statusText}`);
+      }
+      return response;
+    } catch (error) {
+      if (attempt === retries) throw error;
+      log.warn(`Falha na requisição para ${url}. Tentativa ${attempt} de ${retries}. Retentando em ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error('Unreachable');
+}
 
 export async function scrapeSiafiMunicipios(): Promise<void> {
   log.info('Iniciando scrapper para o dataset Lista de municípios do SIAFI...');
 
   try {
-    const datasetsResponse = await fetch(DATASETS_URL);
-    if (!datasetsResponse.ok) {
-      throw new Error(`Falha ao buscar página de datasets: ${datasetsResponse.status}`);
-    }
-    
-    const datasetsHtml = await datasetsResponse.text();
-    const datasetLinkMatch = datasetsHtml.match(/href="(\/ckan\/dataset\/lista-de-municipios-do-siafi)"/i);
-    
-    if (!datasetLinkMatch) {
-      throw new Error('Dataset "Lista de municípios do SIAFI" não localizado na página principal.');
-    }
-
-    const datasetUrl = `${BASE_URL}${datasetLinkMatch[1]}`;
-    log.info(`Dataset localizado em: ${datasetUrl}`);
-
-    const datasetResponse = await fetch(datasetUrl);
-    if (!datasetResponse.ok) {
-      throw new Error(`Falha ao buscar página do dataset: ${datasetResponse.status}`);
-    }
-
+    log.info(`Acessando a página do dataset diretamente em: ${DATASET_URL}`);
+    const datasetResponse = await fetchWithRetry(DATASET_URL);
     const datasetHtml = await datasetResponse.text();
 
     const aTags = datasetHtml.match(/<a\s[^>]+>/gi) || [];
@@ -49,10 +47,7 @@ export async function scrapeSiafiMunicipios(): Promise<void> {
     log.info(`URL de download extraída: ${downloadUrl}`);
 
     log.info('Iniciando o download do arquivo CSV...');
-    const fileResponse = await fetch(downloadUrl);
-    if (!fileResponse.ok) {
-      throw new Error(`Falha ao baixar o arquivo: ${fileResponse.status}`);
-    }
+    const fileResponse = await fetchWithRetry(downloadUrl);
 
     const arrayBuffer = await fileResponse.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);

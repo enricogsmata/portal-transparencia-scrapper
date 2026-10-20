@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import pino from 'pino';
 import { silver_db, silver_pool } from '../../../database/silver_connection.js';
 import { estados } from '../../../database/silver_schema.js';
+import { new_logger } from '../../../services/logs.js';
 
 interface IbgeRegiao {
   id: number;
@@ -18,16 +19,8 @@ interface IbgeEstadoPayload {
   regiao: IbgeRegiao;
 }
 
-const logger = pino({
-  transport: {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
-      ignore: 'pid,hostname',
-    },
-  },
-});
+const logger = new_logger(import.meta.url);
+const log = logger.forMethod('seedEstados');
 
 const IBGE_ESTADOS_DATA: readonly IbgeEstadoPayload[] = [
   { id: 11, sigla: 'RO', nome: 'Rondônia', regiao: { id: 1, sigla: 'N', nome: 'Norte' } },
@@ -68,8 +61,8 @@ function parseIbgeEstado(payload: IbgeEstadoPayload): typeof estados.$inferInser
   };
 }
 
-async function seedEstados(): Promise<void> {
-  logger.info('Iniciando processamento do seed de estados...');
+export async function generateEstadosSeed(): Promise<void> {
+  log.info('Iniciando processamento do seed de estados...');
 
   try {
     const records = IBGE_ESTADOS_DATA.map(parseIbgeEstado);
@@ -85,13 +78,11 @@ async function seedEstados(): Promise<void> {
         },
       });
 
-    logger.info({ total: records.length }, 'Seed de estados concluído com sucesso.');
+    log.info({ total: records.length }, 'Seed de estados concluído com sucesso.');
   } catch (error) {
-    logger.error({ err: error }, 'Falha durante a execução do seed de estados.');
+    log.error({ err: error }, 'Falha durante a execução do seed de estados.');
     process.exitCode = 1;
   } finally {
     await silver_pool.end();
   }
 }
-
-void seedEstados();
