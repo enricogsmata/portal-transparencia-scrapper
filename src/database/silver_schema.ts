@@ -15,8 +15,23 @@ import {
   index,
   uniqueIndex,
   foreignKey,
+  binary,
 } from 'drizzle-orm/mysql-core';
 import { relations, sql } from 'drizzle-orm';
+
+/**
+ * Chave natural calculada pelo próprio MySQL (coluna gerada STORED, SHA-256 em BINARY(32)).
+ *
+ * Por que existe: UNIQUE em MySQL aceita vários NULLs, então uma chave composta com colunas
+ * anuláveis NÃO deduplica e o onDuplicateKeyUpdate nunca dispara. Cada parte anulável deve ser
+ * passada já envolvida em IFNULL(...) (CONCAT_WS ignora NULLs, o que geraria ambiguidade).
+ * Como é gerada pelo banco, o transformer não calcula nem grava essa coluna.
+ */
+const chaveNaturalHash = (...partes: string[]) =>
+  binary('chave_natural', { length: 32 }).generatedAlwaysAs(
+    sql.raw(`UNHEX(SHA2(CONCAT_WS('|', ${partes.join(', ')}), 256))`),
+    { mode: 'stored' },
+  );
 
 // ============================================================================
 // 1. SISTEMA E ORQUESTRAÇÃO DE PIPELINE (METADADOS DE CARGA)
@@ -84,13 +99,16 @@ export const orgaosSuperiores = mysqlTable(
   'orgaos_superiores',
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-    codigo: varchar('codigo', { length: 30 }).notNull().unique(),
+    // Códigos SIAFI e SIAPE podem colidir com significados diferentes: a unicidade é por (sistema, código).
+    sistemaOrigem: mysqlEnum('sistema_origem', ['SIAFI', 'SIAPE']).notNull().default('SIAFI'),
+    codigo: varchar('codigo', { length: 30 }).notNull(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_orgaos_sup_codigo').on(table.codigo),
+    uniqueIndex('uq_orgaos_sup_sist_codigo').on(table.sistemaOrigem, table.codigo),
   ]
 );
 
@@ -99,7 +117,9 @@ export const orgaosSubordinados = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     orgaoSuperiorId: bigint('orgao_superior_id', { mode: 'number' }).notNull().references(() => orgaosSuperiores.id),
-    codigo: varchar('codigo', { length: 30 }).notNull().unique(),
+    // Códigos SIAFI e SIAPE podem colidir com significados diferentes: a unicidade é por (sistema, código).
+    sistemaOrigem: mysqlEnum('sistema_origem', ['SIAFI', 'SIAPE']).notNull().default('SIAFI'),
+    codigo: varchar('codigo', { length: 30 }).notNull(),
     nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
@@ -107,6 +127,7 @@ export const orgaosSubordinados = mysqlTable(
   (table) => [
     index('idx_orgaos_sub_superior').on(table.orgaoSuperiorId),
     index('idx_orgaos_sub_codigo').on(table.codigo),
+    uniqueIndex('uq_orgaos_sub_sist_codigo').on(table.sistemaOrigem, table.codigo),
   ]
 );
 
@@ -123,6 +144,27 @@ export const unidadesGestoras = mysqlTable(
   (table) => [
     index('idx_ug_orgao_sub').on(table.orgaoSubordinadoId),
     index('idx_ug_codigo').on(table.codigo),
+  ]
+);
+
+// Unidade Orçamentária (UO) é um conceito distinto de Unidade Gestora (UG): códigos e semântica diferentes.
+export const unidadesOrcamentarias = mysqlTable(
+  'unidades_orcamentarias',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    orgaoSubordinadoId: bigint('orgao_subordinado_id', { mode: 'number' }),
+    codigo: varchar('codigo', { length: 30 }).notNull().unique(),
+    nome: varchar('nome', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_uo_orgao_sub').on(table.orgaoSubordinadoId),
+    foreignKey({
+      name: 'fk_uo_orgao_sub',
+      columns: [table.orgaoSubordinadoId],
+      foreignColumns: [orgaosSubordinados.id],
+    }),
   ]
 );
 
@@ -179,6 +221,8 @@ export const pessoasFisicas = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     cpf: varchar('cpf', { length: 14 }).notNull(),
     nis: varchar('nis', { length: 15 }),
+    // Identidade = CPF (possivelmente mascarado) + nome normalizado. Gerada pelo banco.
+    chaveNatural: chaveNaturalHash('cpf', "UPPER(TRIM(IFNULL(nome, '')))"),
     nome: varchar('nome', { length: 255 }),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
@@ -188,6 +232,7 @@ export const pessoasFisicas = mysqlTable(
     index('idx_pf_cpf').on(table.cpf),
     index('idx_pf_nis').on(table.nis),
     index('idx_pf_municipio').on(table.municipioId),
+    uniqueIndex('uq_pf_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -263,6 +308,7 @@ export const acoesOrcamentarias = mysqlTable(
     codigo: varchar('codigo', { length: 20 }).notNull(),
     nome: varchar('nome', { length: 255 }).notNull(),
     linguagemCidada: text('linguagem_cidada'),
+    chaveNatural: chaveNaturalHash('IFNULL(programa_id, 0)', 'codigo'),
     createdAt: timestamp('created_at', { fsp: 3 })
       .default(sql`CURRENT_TIMESTAMP(3)`)
       .notNull(),
@@ -273,6 +319,7 @@ export const acoesOrcamentarias = mysqlTable(
   (table) => [
     index('idx_acoes_programa').on(table.programaId),
     index('idx_acoes_codigo').on(table.codigo),
+    uniqueIndex('uq_acoes_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -350,6 +397,7 @@ export const subelementosDespesa = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }).references(() => elementosDespesa.id),
     codigo: varchar('codigo', { length: 10 }).notNull(),
+    chaveNatural: chaveNaturalHash('IFNULL(elemento_despesa_id, 0)', 'codigo'),
     nome: varchar('nome', { length: 150 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
@@ -357,6 +405,7 @@ export const subelementosDespesa = mysqlTable(
   (table) => [
     index('idx_subelemento_elemento').on(table.elementoDespesaId),
     index('idx_subelemento_codigo').on(table.codigo),
+    uniqueIndex('uq_subelemento_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -452,6 +501,7 @@ export const despesasEmpenhoItens = mysqlTable(
   (table) => [
     index('idx_emp_itens_empenho').on(table.empenhoId),
     index('idx_emp_itens_subelemento').on(table.subelementoDespesaId),
+    uniqueIndex('uq_emp_itens_nk').on(table.empenhoId, table.sequencial),
     // Chave estrangeira declarada com nome curto
     foreignKey({
       name: 'fk_dei_subelemento',
@@ -595,6 +645,18 @@ export const orcamentoDespesa = mysqlTable(
     categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
     grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
     elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }).references(() => elementosDespesa.id),
+    funcaoId: bigint('funcao_id', { mode: 'number' }).references(() => funcoesOrcamentarias.id),
+    subfuncaoId: bigint('subfuncao_id', { mode: 'number' }).references(() => subfuncoesOrcamentarias.id),
+    chaveNatural: chaveNaturalHash(
+      'exercicio',
+      'IFNULL(unidade_orcamentaria_id, 0)',
+      'IFNULL(acao_orcamentaria_id, 0)',
+      'IFNULL(funcao_id, 0)',
+      'IFNULL(subfuncao_id, 0)',
+      'IFNULL(categoria_despesa_id, 0)',
+      'IFNULL(grupo_despesa_id, 0)',
+      'IFNULL(elemento_despesa_id, 0)',
+    ),
     orcamentoInicial: decimal('orcamento_inicial', { precision: 18, scale: 2 }).notNull(),
     orcamentoAtualizado: decimal('orcamento_atualizado', { precision: 18, scale: 2 }).notNull(),
     orcamentoEmpenhado: decimal('orcamento_empenhado', { precision: 18, scale: 2 }).notNull(),
@@ -607,12 +669,13 @@ export const orcamentoDespesa = mysqlTable(
     index('idx_orc_desp_exercicio').on(table.exercicio),
     index('idx_orc_desp_uo').on(table.unidadeOrcamentariaId),
     index('idx_orc_desp_acao').on(table.acaoOrcamentariaId),
+    uniqueIndex('uq_orc_desp_chave_natural').on(table.chaveNatural),
     
     // Declarando a chave estrangeira manualmente com nome curto
     foreignKey({
       name: 'fk_orc_desp_uo',
       columns: [table.unidadeOrcamentariaId],
-      foreignColumns: [unidadesGestoras.id],
+      foreignColumns: [unidadesOrcamentarias.id],
     }),
   ]
 );
@@ -625,7 +688,17 @@ export const receitas = mysqlTable(
     unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }).references(() => unidadesGestoras.id),
     categoriaEconomica: varchar('categoria_economica', { length: 100 }),
     origem: varchar('origem', { length: 150 }),
+    especieReceita: varchar('especie_receita', { length: 150 }),
     detalhamento: text('detalhamento'),
+    chaveNatural: chaveNaturalHash(
+      'exercicio',
+      'IFNULL(unidade_gestora_id, 0)',
+      "IFNULL(categoria_economica, '')",
+      "IFNULL(origem, '')",
+      "IFNULL(especie_receita, '')",
+      "IFNULL(detalhamento, '')",
+      "IFNULL(data_lancamento, '')",
+    ),
     valorPrevisto: decimal('valor_previsto', { precision: 18, scale: 2 }).notNull(),
     valorLancado: decimal('valor_lancado', { precision: 18, scale: 2 }).notNull(),
     valorRealizado: decimal('valor_realizado', { precision: 18, scale: 2 }).notNull(),
@@ -637,6 +710,7 @@ export const receitas = mysqlTable(
   (table) => [
     index('idx_receitas_exercicio').on(table.exercicio),
     index('idx_receitas_ug').on(table.unidadeGestoraId),
+    uniqueIndex('uq_receitas_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -654,6 +728,15 @@ export const recursosTransferidos = mysqlTable(
     
     favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }).references(() => pessoasFisicas.id),
     favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
+    chaveNatural: chaveNaturalHash(
+      'ano_mes',
+      'tipo_transferencia',
+      'IFNULL(municipio_id, 0)',
+      'IFNULL(unidade_gestora_id, 0)',
+      'IFNULL(acao_orcamentaria_id, 0)',
+      'IFNULL(favorecido_pf_id, 0)',
+      'IFNULL(favorecido_pj_id, 0)',
+    ),
     valorTransferido: decimal('valor_transferido', { precision: 18, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
@@ -662,6 +745,7 @@ export const recursosTransferidos = mysqlTable(
     index('idx_rec_transf_ano_mes').on(table.anoMes),
     index('idx_rec_transf_municipio').on(table.municipioId),
     index('idx_rec_transf_ug').on(table.unidadeGestoraId),
+    uniqueIndex('uq_rec_transf_chave_natural').on(table.chaveNatural),
     
     // Declarando a chave estrangeira manualmente com nome curto
     foreignKey({
@@ -698,6 +782,7 @@ export const licitacoes = mysqlTable(
     index('idx_licitacao_ug').on(table.unidadeGestoraId),
     index('idx_licitacao_numero').on(table.numeroLicitacao),
     index('idx_licitacao_processo').on(table.numeroProcesso),
+    uniqueIndex('uq_licitacao_nk').on(table.unidadeGestoraId, table.modalidadeCompra, table.numeroLicitacao),
   ]
 );
 
@@ -713,6 +798,7 @@ export const licitacaoItens = mysqlTable(
   },
   (table) => [
     index('idx_lic_itens_licitacao').on(table.licitacaoId),
+    uniqueIndex('uq_lic_itens_nk').on(table.licitacaoId, table.codigoItemCompra),
   ]
 );
 
@@ -724,12 +810,14 @@ export const licitacaoParticipantes = mysqlTable(
     licitacaoItemId: bigint('licitacao_item_id', { mode: 'number' }).references(() => licitacaoItens.id),
     participanteId: bigint('participante_id', { mode: 'number' }).notNull().references(() => pessoasJuridicas.id),
     flagVencedor: boolean('flag_vencedor').default(false).notNull(),
+    chaveNatural: chaveNaturalHash('licitacao_id', 'IFNULL(licitacao_item_id, 0)', 'participante_id'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_lic_part_licitacao').on(table.licitacaoId),
     index('idx_lic_part_empresa').on(table.participanteId),
+    uniqueIndex('uq_lic_part_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -760,6 +848,7 @@ export const contratos = mysqlTable(
     index('idx_contratos_numero').on(table.numeroContrato),
     index('idx_contratos_contratado').on(table.contratadoId),
     index('idx_contratos_licitacao').on(table.licitacaoId),
+    uniqueIndex('uq_contratos_nk').on(table.unidadeGestoraId, table.numeroContrato),
   ]
 );
 
@@ -772,11 +861,14 @@ export const contratoItens = mysqlTable(
     descricaoItemCompra: text('descricao_item_compra').notNull(),
     quantidade: decimal('quantidade', { precision: 14, scale: 4 }).notNull(),
     valorItem: decimal('valor_item', { precision: 15, scale: 2 }).notNull(),
+    // Sequência determinística (1..n, ordenada pelo id do bronze) para linhas repetidas do mesmo item.
+    ocorrencia: int('ocorrencia').notNull().default(1),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_contrato_itens_contrato').on(table.contratoId),
+    uniqueIndex('uq_contrato_itens_nk').on(table.contratoId, table.codigoItemCompra, table.ocorrencia),
   ]
 );
 
@@ -793,6 +885,26 @@ export const contratoTermosAditivos = mysqlTable(
   },
   (table) => [
     index('idx_termo_aditivo_contrato').on(table.contratoId),
+    uniqueIndex('uq_termo_aditivo_nk').on(table.contratoId, table.numeroTermoAditivo),
+  ]
+);
+
+export const contratoApostilamentos = mysqlTable(
+  'contrato_apostilamentos',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    contratoId: bigint('contrato_id', { mode: 'number' }).notNull().references(() => contratos.id),
+    numeroApostilamento: varchar('numero_apostilamento', { length: 50 }).notNull(),
+    descricao: text('descricao'),
+    valorApostilamento: decimal('valor_apostilamento', { precision: 15, scale: 2 }),
+    dataInclusao: date('data_inclusao', { mode: 'string' }),
+    situacaoApostilamento: varchar('situacao_apostilamento', { length: 100 }),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_apostilamento_contrato').on(table.contratoId),
+    uniqueIndex('uq_apostilamento_nk').on(table.contratoId, table.numeroApostilamento),
   ]
 );
 
@@ -847,6 +959,7 @@ export const convenioOrdensBancarias = mysqlTable(
   (table) => [
     index('idx_convenio_ob_convenio').on(table.convenioId),
     index('idx_convenio_ob_data').on(table.dataEmissaoOb),
+    uniqueIndex('uq_convenio_ob_nk').on(table.convenioId, table.numeroOrdemBancaria),
   ]
 );
 
@@ -1064,6 +1177,7 @@ export const viagemTrechos = mysqlTable(
   (table) => [
     index('idx_viagem_trechos_viagem').on(table.viagemId),
     index('idx_viagem_trechos_origem_data').on(table.origemData),
+    uniqueIndex('uq_viagem_trechos_nk').on(table.viagemId, table.sequenciaTrecho),
   ]
 );
 
@@ -1140,12 +1254,20 @@ export const servidoresRemuneracoes = mysqlTable(
     remuneracaoAposDeducoesRs: decimal('remuneracao_apos_deducoes_rs', { precision: 15, scale: 2 }).notNull(),
     totalVerbasIndenizatoriasRs: decimal('total_verbas_indenizatorias_rs', { precision: 15, scale: 2 }),
     totalHonorariosJetons: decimal('total_honorarios_jetons', { precision: 15, scale: 2 }),
+    abateTetoGratificacaoNatalinaRs: decimal('abate_teto_gratificacao_natalina_rs', { precision: 15, scale: 2 }),
+    pensaoMilitarRs: decimal('pensao_militar_rs', { precision: 15, scale: 2 }),
+    fundoSaudeRs: decimal('fundo_saude_rs', { precision: 15, scale: 2 }),
+    taxaOcupacaoImovelFuncionalRs: decimal('taxa_ocupacao_imovel_funcional_rs', { precision: 15, scale: 2 }),
+    verbasIndenizatoriasCivilRs: decimal('verbas_indenizatorias_civil_rs', { precision: 15, scale: 2 }),
+    verbasIndenizatoriasMilitarRs: decimal('verbas_indenizatorias_militar_rs', { precision: 15, scale: 2 }),
+    verbasIndenizatoriasPdvRs: decimal('verbas_indenizatorias_pdv_rs', { precision: 15, scale: 2 }),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_serv_remun_servidor').on(table.servidorId),
     index('idx_serv_remun_competencia').on(table.ano, table.mes),
+    uniqueIndex('uq_serv_remun_nk').on(table.servidorId, table.ano, table.mes),
   ]
 );
 
@@ -1162,6 +1284,7 @@ export const servidoresAfastamentos = mysqlTable(
   (table) => [
     index('idx_serv_afast_servidor').on(table.servidorId),
     index('idx_serv_afast_inicio').on(table.dataInicioAfastamento),
+    uniqueIndex('uq_serv_afast_nk').on(table.servidorId, table.dataInicioAfastamento),
   ]
 );
 
@@ -1179,6 +1302,7 @@ export const servidoresJetons = mysqlTable(
   },
   (table) => [
     index('idx_jetons_servidor').on(table.servidorId),
+    uniqueIndex('uq_jetons_nk').on(table.servidorId, table.ano, table.mes, table.empresa),
   ]
 );
 
@@ -1196,6 +1320,24 @@ export const servidoresHonorarios = mysqlTable(
   },
   (table) => [
     index('idx_honorarios_servidor').on(table.servidorId),
+  ]
+);
+
+export const servidoresObservacoes = mysqlTable(
+  'servidores_observacoes',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    servidorId: bigint('servidor_id', { mode: 'number' }).notNull().references(() => servidores.id),
+    ano: char('ano', { length: 4 }).notNull(),
+    mes: char('mes', { length: 2 }).notNull(),
+    observacao: text('observacao').notNull(),
+    chaveNatural: chaveNaturalHash('servidor_id', 'ano', 'mes', 'observacao'),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_serv_obs_servidor').on(table.servidorId),
+    uniqueIndex('uq_serv_obs_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -1231,6 +1373,18 @@ export const beneficioPagamentos = mysqlTable(
     dataSaque: date('data_saque', { mode: 'string' }),
     concedidoJudicialmente: boolean('concedido_judicialmente'),
     numeroBeneficio: varchar('numero_beneficio', { length: 30 }),
+    // Sequência determinística (1..n, ordenada pelo id do bronze) para linhas idênticas na mesma chave.
+    ocorrencia: int('ocorrencia').notNull().default(1),
+    chaveNatural: chaveNaturalHash(
+      'programa_id',
+      'beneficiario_id',
+      'mes_competencia',
+      "IFNULL(mes_referencia, '')",
+      "IFNULL(parcela, '')",
+      "IFNULL(numero_beneficio, '')",
+      'valor',
+      'ocorrencia',
+    ),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
@@ -1240,6 +1394,37 @@ export const beneficioPagamentos = mysqlTable(
     index('idx_ben_pag_municipio').on(table.municipioId),
     index('idx_ben_pag_competencia').on(table.mesCompetencia),
     index('idx_ben_pag_data_disp').on(table.dataDisponibilizacao),
+    uniqueIndex('uq_ben_pag_chave_natural').on(table.chaveNatural),
+  ]
+);
+
+// Detalhe 1:1 específico do Gás do Povo (estabelecimento e vale), sem poluir beneficio_pagamentos.
+export const beneficioGasDoPovoDetalhes = mysqlTable(
+  'beneficio_gas_do_povo_detalhes',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    beneficioPagamentoId: bigint('beneficio_pagamento_id', { mode: 'number' }).notNull().unique(),
+    estabelecimentoId: bigint('estabelecimento_id', { mode: 'number' }),
+    quantidadePessoasFamilia: int('quantidade_pessoas_familia'),
+    validadeVale: varchar('validade_vale', { length: 30 }),
+    dataInicioVigenciaVale: date('data_inicio_vigencia_vale', { mode: 'string' }),
+    dataFimVigenciaVale: date('data_fim_vigencia_vale', { mode: 'string' }),
+    dataRetiradaVale: date('data_retirada_vale', { mode: 'string' }),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_bgpd_estabelecimento').on(table.estabelecimentoId),
+    foreignKey({
+      name: 'fk_bgpd_beneficio',
+      columns: [table.beneficioPagamentoId],
+      foreignColumns: [beneficioPagamentos.id],
+    }),
+    foreignKey({
+      name: 'fk_bgpd_estab',
+      columns: [table.estabelecimentoId],
+      foreignColumns: [pessoasJuridicas.id],
+    }),
   ]
 );
 
@@ -1252,13 +1437,16 @@ export const sancoesAdministrativas = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     tipoCadastro: mysqlEnum('tipo_cadastro', ['CEIS', 'CNEP', 'CEAF', 'CEPIM']).notNull(),
-    codigoSancao: varchar('codigo_sancao', { length: 30 }),
+    // Obrigatório: CEIS/CNEP/CEAF trazem o código; para CEPIM o transformer gera 'CEPIM:{cnpj}:{numeroConvenio}'.
+    codigoSancao: varchar('codigo_sancao', { length: 80 }).notNull(),
     sancionadoPjId: bigint('sancionado_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
     sancionadoPfId: bigint('sancionado_pf_id', { mode: 'number' }).references(() => pessoasFisicas.id),
-    numeroProcesso: varchar('numero_processo', { length: 60 }).notNull(),
+    // CEPIM referencia um convênio e não possui número de processo.
+    convenioId: bigint('convenio_id', { mode: 'number' }).references(() => convenios.id),
+    numeroProcesso: varchar('numero_processo', { length: 60 }),
     categoriaSancao: varchar('categoria_sancao', { length: 150 }),
     valorMulta: decimal('valor_multa', { precision: 15, scale: 2 }),
-    dataInicioSancao: date('data_inicio_sancao', { mode: 'string' }).notNull(),
+    dataInicioSancao: date('data_inicio_sancao', { mode: 'string' }),
     dataFinalSancao: date('data_final_sancao', { mode: 'string' }),
     dataPublicacao: date('data_publicacao', { mode: 'string' }),
     dataTransitoJulgado: date('data_transito_julgado', { mode: 'string' }),
@@ -1276,6 +1464,8 @@ export const sancoesAdministrativas = mysqlTable(
     index('idx_sancoes_pf').on(table.sancionadoPfId),
     index('idx_sancoes_processo').on(table.numeroProcesso),
     index('idx_sancoes_data_inicio').on(table.dataInicioSancao),
+    index('idx_sancoes_convenio').on(table.convenioId),
+    uniqueIndex('uq_sancoes_nk').on(table.tipoCadastro, table.codigoSancao),
   ]
 );
 
@@ -1859,6 +2049,17 @@ export const execucaoDespesas = mysqlTable(
     
     // Atributos textuais residuais da dimensão da Emenda (caso não haja tabela específica)
     codigoAutorEmenda: varchar('codigo_autor_emenda', { length: 50 }),
+    chaveNatural: chaveNaturalHash(
+      'ano_mes_lancamento',
+      'IFNULL(unidade_gestora_id, 0)',
+      'IFNULL(acao_orcamentaria_id, 0)',
+      'IFNULL(municipio_id, 0)',
+      'IFNULL(categoria_despesa_id, 0)',
+      'IFNULL(grupo_despesa_id, 0)',
+      'IFNULL(modalidade_aplicacao_id, 0)',
+      'IFNULL(elemento_despesa_id, 0)',
+      "IFNULL(codigo_autor_emenda, '')",
+    ),
     nomeAutorEmenda: varchar('nome_autor_emenda', { length: 255 }),
 
     // Métricas Financeiras (1FN)
@@ -1878,6 +2079,7 @@ export const execucaoDespesas = mysqlTable(
     index('idx_exec_desp_ug').on(table.unidadeGestoraId),
     index('idx_exec_desp_acao').on(table.acaoOrcamentariaId),
     index('idx_exec_desp_municipio').on(table.municipioId),
+    uniqueIndex('uq_exec_desp_chave_natural').on(table.chaveNatural),
   ]
 );
 
@@ -2018,3 +2220,123 @@ export const emendasParlamentaresFavorecidosRelations = relations(emendasParlame
     references: [municipios.id],
   }),
 }));
+
+
+// ============================================================================
+// COMPLEMENTOS: DESTINOS QUE FALTAVAM PARA DADOS DO BRONZE
+// ============================================================================
+
+// Recebimentos agregados por favorecido/mês (bronze: recebimento_recursos_favorecido).
+// NÃO deve ir para despesas_pagamentos: é um agregado, e duplicaria valores dos pagamentos reais.
+export const recebimentosFavorecido = mysqlTable(
+  'recebimentos_favorecido',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    anoMesLancamento: varchar('ano_mes_lancamento', { length: 7 }).notNull(),
+    unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }),
+    municipioId: bigint('municipio_id', { mode: 'number' }),
+    favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }),
+    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }),
+    // Preserva o identificador original quando o favorecido não é PF nem PJ (ex.: estrangeiro).
+    codigoFavorecido: varchar('codigo_favorecido', { length: 30 }).notNull(),
+    nomeFavorecido: varchar('nome_favorecido', { length: 255 }),
+    valorRecebido: decimal('valor_recebido', { precision: 18, scale: 2 }).notNull(),
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    chaveNatural: chaveNaturalHash(
+      'ano_mes_lancamento',
+      'IFNULL(unidade_gestora_id, 0)',
+      'IFNULL(municipio_id, 0)',
+      'codigo_favorecido',
+    ),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_rf_ano_mes').on(table.anoMesLancamento),
+    index('idx_rf_ug').on(table.unidadeGestoraId),
+    index('idx_rf_fav_pf').on(table.favorecidoPfId),
+    index('idx_rf_fav_pj').on(table.favorecidoPjId),
+    uniqueIndex('uq_rf_chave_natural').on(table.chaveNatural),
+    foreignKey({ name: 'fk_rf_ug', columns: [table.unidadeGestoraId], foreignColumns: [unidadesGestoras.id] }),
+    foreignKey({ name: 'fk_rf_municipio', columns: [table.municipioId], foreignColumns: [municipios.id] }),
+    foreignKey({ name: 'fk_rf_fav_pf', columns: [table.favorecidoPfId], foreignColumns: [pessoasFisicas.id] }),
+    foreignKey({ name: 'fk_rf_fav_pj', columns: [table.favorecidoPjId], foreignColumns: [pessoasJuridicas.id] }),
+  ]
+);
+
+// Vínculo licitação <-> empenho (bronze: licitacao_empenhos_relacionados).
+export const licitacaoEmpenhos = mysqlTable(
+  'licitacao_empenhos',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    licitacaoId: bigint('licitacao_id', { mode: 'number' }).notNull(),
+    empenhoId: bigint('empenho_id', { mode: 'number' }).notNull(),
+    valorEmpenho: decimal('valor_empenho', { precision: 18, scale: 2 }),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_lic_emp_empenho').on(table.empenhoId),
+    uniqueIndex('uq_lic_emp_nk').on(table.licitacaoId, table.empenhoId),
+    foreignKey({ name: 'fk_le_licitacao', columns: [table.licitacaoId], foreignColumns: [licitacoes.id] }),
+    foreignKey({ name: 'fk_le_empenho', columns: [table.empenhoId], foreignColumns: [despesasEmpenhos.id] }),
+  ]
+);
+
+// Documentos de despesa ligados a emendas (bronze: emendas_parlamentares_documentos_despesa).
+// Mantém o vínculo emenda <-> documento sem criar empenhos/pagamentos "stub".
+export const emendasParlamentaresDocumentos = mysqlTable(
+  'emendas_parlamentares_documentos',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    emendaId: bigint('emenda_id', { mode: 'number' }).notNull(),
+    codigoDocumento: varchar('codigo_documento', { length: 50 }).notNull(),
+    faseDespesa: varchar('fase_despesa', { length: 30 }).notNull(),
+    dataDocumento: date('data_documento', { mode: 'string' }),
+    // Preenchidos quando o documento já existe nas tabelas de despesa (resolvidos após a carga de despesas).
+    empenhoId: bigint('empenho_id', { mode: 'number' }),
+    liquidacaoId: bigint('liquidacao_id', { mode: 'number' }),
+    pagamentoId: bigint('pagamento_id', { mode: 'number' }),
+    unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }),
+    favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }),
+    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }),
+    municipioAplicacaoId: bigint('municipio_aplicacao_id', { mode: 'number' }),
+    valorEmpenhado: decimal('valor_empenhado', { precision: 18, scale: 2 }),
+    valorPago: decimal('valor_pago', { precision: 18, scale: 2 }),
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_epd_emenda').on(table.emendaId),
+    index('idx_epd_empenho').on(table.empenhoId),
+    index('idx_epd_pagamento').on(table.pagamentoId),
+    uniqueIndex('uq_epd_nk').on(table.emendaId, table.codigoDocumento, table.faseDespesa),
+    foreignKey({ name: 'fk_epd_emenda', columns: [table.emendaId], foreignColumns: [emendasParlamentares.id] }),
+    foreignKey({ name: 'fk_epd_empenho', columns: [table.empenhoId], foreignColumns: [despesasEmpenhos.id] }),
+    foreignKey({ name: 'fk_epd_liquidacao', columns: [table.liquidacaoId], foreignColumns: [despesasLiquidacoes.id] }),
+    foreignKey({ name: 'fk_epd_pagamento', columns: [table.pagamentoId], foreignColumns: [despesasPagamentos.id] }),
+    foreignKey({ name: 'fk_epd_ug', columns: [table.unidadeGestoraId], foreignColumns: [unidadesGestoras.id] }),
+    foreignKey({ name: 'fk_epd_fav_pf', columns: [table.favorecidoPfId], foreignColumns: [pessoasFisicas.id] }),
+    foreignKey({ name: 'fk_epd_fav_pj', columns: [table.favorecidoPjId], foreignColumns: [pessoasJuridicas.id] }),
+    foreignKey({ name: 'fk_epd_municipio', columns: [table.municipioAplicacaoId], foreignColumns: [municipios.id] }),
+  ]
+);
+
+// Empresas imunes ou isentas (bronze: empresas_imunes_ou_isentas).
+export const empresasImunesIsentas = mysqlTable(
+  'empresas_imunes_isentas',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    empresaId: bigint('empresa_id', { mode: 'number' }).notNull().references(() => pessoasJuridicas.id),
+    anoCalendario: char('ano_calendario', { length: 4 }).notNull(),
+    tipoEntidade: varchar('tipo_entidade', { length: 150 }),
+    beneficioFiscal: varchar('beneficio_fiscal', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_imunes_empresa').on(table.empresaId),
+    uniqueIndex('uq_imunes_nk').on(table.empresaId, table.anoCalendario, table.beneficioFiscal),
+  ]
+);

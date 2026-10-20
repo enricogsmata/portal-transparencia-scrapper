@@ -2,9 +2,9 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Cepim } from '../../../database/bronze_schema.js';
-import { 
-  sancoesAdministrativas, 
-  pessoasJuridicas 
+import {
+  sancoesAdministrativas,
+  pessoasJuridicas
 } from '../../../database/silver_schema.js';
 import { formatCnpj } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
@@ -60,32 +60,33 @@ export async function processCepim() {
       const cnpjsSet = [...new Set(pjsToUpsert.map(p => p.cnpj))];
       const pjsExistentesDb = cnpjsSet.length > 0
         ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj })
-            .from(pessoasJuridicas)
-            .where(inArray(pessoasJuridicas.cnpj, cnpjsSet))
+          .from(pessoasJuridicas)
+          .where(inArray(pessoasJuridicas.cnpj, cnpjsSet))
         : [];
-      
-      const cnpjIdMap = new Map(pjsExistentesDb.map(pj => [pj.cnpj, pj.id]));
 
+      const cnpjIdMap = new Map(pjsExistentesDb.map(pj => [pj.cnpj, pj.id]));
+      
       // 3. Entidade de Sanções Administrativas
       const sancoesToInsert = bronzeData
         .map(b => {
           const cnpjFormatado = formatCnpj(b.cnpjEntidade);
           const sancionadoPjId = cnpjFormatado ? cnpjIdMap.get(cnpjFormatado) : null;
-          
+
           if (!sancionadoPjId) return null;
 
-          const numeroProcesso = b.numeroConvenio || 'NÃO INFORMADO';
-          
-          // Data de Início é obrigatória na entidade sancoes_administrativas.
-          // Derivando da data de extração/referência do arquivo caso não exista na fonte.
-          const dataInicio = b.exercicioReferencia 
+          const numeroConvenio = b.numeroConvenio || 'NA';
+          const codigoSancao = `CEPIM:${b.cnpjEntidade || 'NA'}:${numeroConvenio}`;
+
+          const dataInicio = b.exercicioReferencia
             ? `${b.exercicioReferencia}-${(b.mesReferencia || '01').padStart(2, '0')}-${(b.diaReferencia || '01').padStart(2, '0')}`
-            : '1970-01-01';
+            : null;
 
           return {
             tipoCadastro: 'CEPIM' as const,
+            codigoSancao,
             sancionadoPjId,
-            numeroProcesso,
+            numeroProcesso: b.numeroConvenio || null,
+            convenioId: null, // Pode ser preenchido caso exista lookup para a tabela de convenios
             categoriaSancao: 'IMPEDIMENTO',
             dataInicioSancao: dataInicio,
             orgaoSancionador: b.orgaoConcedente || null,
@@ -95,22 +96,27 @@ export async function processCepim() {
         .filter(Boolean) as typeof sancoesAdministrativas.$inferInsert[];
 
       if (sancoesToInsert.length > 0) {
-        // Garantir UPSERT seguro deletando sobreposições para CEPIM + Convênios (Processos) do lote
-        const processosLote = [...new Set(sancoesToInsert.map(s => s.numeroProcesso))];
+        const uniqueMap = new Map<string, typeof sancoesToInsert[0]>();
+        for (const s of sancoesToInsert) uniqueMap.set(s.codigoSancao, s);
+        const uniqueSancoes = Array.from(uniqueMap.values());
 
-        if (processosLote.length > 0) {
+        const codigosSancaoLote = uniqueSancoes
+          .map(s => s.codigoSancao)
+          .filter((c): c is string => typeof c === 'string' && c.length > 0);
+
+        if (codigosSancaoLote.length > 0) {
           await silver_db.delete(sancoesAdministrativas)
             .where(
               and(
                 eq(sancoesAdministrativas.tipoCadastro, 'CEPIM'),
-                inArray(sancoesAdministrativas.numeroProcesso, processosLote)
+                inArray(sancoesAdministrativas.codigoSancao, codigosSancaoLote)
               )
             );
         }
 
-        log.info({ data: { count: sancoesToInsert.length } }, 'Inserindo sancoes_administrativas (CEPIM)');
-        for (let i = 0; i < sancoesToInsert.length; i += 1000) {
-          await silver_db.insert(sancoesAdministrativas).values(sancoesToInsert.slice(i, i + 1000));
+        log.info({ data: { count: uniqueSancoes.length } }, 'Inserindo sancoes_administrativas (CEPIM)');
+        for (let i = 0; i < uniqueSancoes.length; i += 1000) {
+          await silver_db.insert(sancoesAdministrativas).values(uniqueSancoes.slice(i, i + 1000));
         }
       }
 

@@ -2,10 +2,10 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Ceis } from '../../../database/bronze_schema.js';
-import { 
-  sancoesAdministrativas, 
-  pessoasFisicas, 
-  pessoasJuridicas 
+import {
+  sancoesAdministrativas,
+  pessoasFisicas,
+  pessoasJuridicas
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
@@ -62,13 +62,13 @@ export async function processCeis() {
       // 2. Dimensão Pessoas Físicas (Sancionados PF)
       const pfsLote = bronzeData.filter(b => getDocumentType(b.cpfCnpjSancionado) === 'PF');
       const cpfsSet = [...new Set(pfsLote.map(b => formatCpf(b.cpfCnpjSancionado)).filter(Boolean) as string[])];
-      
+
       const cpfsExistentesDb = cpfsSet.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsSet))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsSet))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -92,7 +92,7 @@ export async function processCeis() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -124,10 +124,10 @@ export async function processCeis() {
       const cnpjsSet = [...new Set(pjsToUpsert.map(p => p.cnpj))];
       const pjsExistentesDb = cnpjsSet.length > 0
         ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj })
-            .from(pessoasJuridicas)
-            .where(inArray(pessoasJuridicas.cnpj, cnpjsSet))
+          .from(pessoasJuridicas)
+          .where(inArray(pessoasJuridicas.cnpj, cnpjsSet))
         : [];
-      
+
       const cnpjIdMap = new Map(pjsExistentesDb.map(pj => [pj.cnpj, pj.id]));
 
       // 4. Entidade de Sanções Administrativas
@@ -143,20 +143,19 @@ export async function processCeis() {
             sancionadoPjId = cnpjIdMap.get(formatCnpj(b.cpfCnpjSancionado)!) || null;
           }
 
-          const dataInicio = parseDate(b.dataInicioSancao);
-          const numeroProcesso = b.numeroProcesso || 'NÃO INFORMADO';
+          if (!sancionadoPfId && !sancionadoPjId) return null;
 
-          // A tabela Sancoes exige `numeroProcesso` e `dataInicioSancao` como NOT NULL
-          if (!dataInicio || (!sancionadoPfId && !sancionadoPjId)) return null;
+          const numeroProcesso = b.numeroProcesso || null;
+          const codigoSancao = b.codigoSancao?.trim() || `CEIS:${b.cpfCnpjSancionado || 'NA'}:${b.numeroProcesso || b.id}`;
 
           return {
             tipoCadastro: 'CEIS' as const,
-            codigoSancao: b.codigoSancao || null,
+            codigoSancao,
             sancionadoPfId,
             sancionadoPjId,
             numeroProcesso,
             categoriaSancao: b.categoriaSancao || null,
-            dataInicioSancao: dataInicio,
+            dataInicioSancao: parseDate(b.dataInicioSancao) || null,
             dataFinalSancao: parseDate(b.dataFinalSancao) || null,
             dataPublicacao: parseDate(b.dataPublicacao) || null,
             dataTransitoJulgado: parseDate(b.dataTransitoJulgado) || null,
@@ -170,22 +169,27 @@ export async function processCeis() {
         .filter(Boolean) as typeof sancoesAdministrativas.$inferInsert[];
 
       if (sancoesToInsert.length > 0) {
-        // Garantir UPSERT seguro deletando sobreposições para CEIS + Processos do lote
-        const processosLote = [...new Set(sancoesToInsert.map(s => s.numeroProcesso))];
+        const uniqueMap = new Map<string, typeof sancoesToInsert[0]>();
+        for (const s of sancoesToInsert) uniqueMap.set(s.codigoSancao, s);
+        const uniqueSancoes = Array.from(uniqueMap.values());
 
-        if (processosLote.length > 0) {
+        const codigosSancaoLote = uniqueSancoes
+          .map(s => s.codigoSancao)
+          .filter((c): c is string => typeof c === 'string' && c.length > 0);
+
+        if (codigosSancaoLote.length > 0) {
           await silver_db.delete(sancoesAdministrativas)
             .where(
               and(
                 eq(sancoesAdministrativas.tipoCadastro, 'CEIS'),
-                inArray(sancoesAdministrativas.numeroProcesso, processosLote)
+                inArray(sancoesAdministrativas.codigoSancao, codigosSancaoLote)
               )
             );
         }
 
-        log.info({ data: { count: sancoesToInsert.length } }, 'Inserindo sancoes_administrativas (CEIS)');
-        for (let i = 0; i < sancoesToInsert.length; i += 1000) {
-          await silver_db.insert(sancoesAdministrativas).values(sancoesToInsert.slice(i, i + 1000));
+        log.info({ data: { count: uniqueSancoes.length } }, 'Inserindo sancoes_administrativas (CEIS)');
+        for (let i = 0; i < uniqueSancoes.length; i += 1000) {
+          await silver_db.insert(sancoesAdministrativas).values(uniqueSancoes.slice(i, i + 1000));
         }
       }
 
