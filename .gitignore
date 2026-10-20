@@ -1,5 +1,5 @@
 .env
 node_modules
-src/files/*
-.temp_downloads
+.temp_downloads/
+src/files/
 src/database/out/*
