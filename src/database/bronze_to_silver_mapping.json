@@ -471,13 +471,13 @@
           "modalidades_aplicacao"
         ],
         "entities": [
-          "despesas_empenhos"
+          "execucao_despesas"
         ]
       },
       "normalizationDetails": {
-        "1FN": "Valores empenhados, liquidados e pagos em decimal(18,2); competência YYYYMM em varchar(7).",
-        "2FN": "Métricas de execução atreladas à combinação de UG, Ação e Localizador.",
-        "3FN": "Substituição de nomes de órgãos, funções e municípios por FKs normalizadas."
+        "1FN": "Valores empenhados, liquidados, pagos e restos a pagar convertidos rigorosamente para decimal(18,2); competência isolada no formato YYYYMM (varchar).",
+        "2FN": "Métricas de execução e agregados mensais atreladas diretamente à chave surrogate e combinação multidimensional de UG, Ação e Município.",
+        "3FN": "Eliminação maciça de textos descritivos da Bronze (nomeUG, orgaos, funções, programas, descrições de despesas) mediante substituição por chaves estrangeiras das dimensões governamentais apropriadas."
       }
     },
     {

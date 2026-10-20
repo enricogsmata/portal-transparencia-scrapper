@@ -1837,3 +1837,81 @@ export const despesasPagamentoListaPrecatorios = mysqlTable(
     }),
   ]
 );
+
+// ============================================================================
+// EXECUÇÃO DA DESPESA (FATO AGREGADA MENSAL)
+// ============================================================================
+
+export const execucaoDespesas = mysqlTable(
+  'execucao_despesas',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    anoMesLancamento: varchar('ano_mes_lancamento', { length: 7 }).notNull(),
+    unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }).references(() => unidadesGestoras.id),
+    acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
+    municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
+    
+    // Dimensões Orçamentárias
+    categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
+    grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
+    modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }).references(() => modalidadesAplicacao.id),
+    elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }).references(() => elementosDespesa.id),
+    
+    // Atributos textuais residuais da dimensão da Emenda (caso não haja tabela específica)
+    codigoAutorEmenda: varchar('codigo_autor_emenda', { length: 50 }),
+    nomeAutorEmenda: varchar('nome_autor_emenda', { length: 255 }),
+
+    // Métricas Financeiras (1FN)
+    valorEmpenhado: decimal('valor_empenhado', { precision: 18, scale: 2 }).notNull(),
+    valorLiquidado: decimal('valor_liquidado', { precision: 18, scale: 2 }).notNull(),
+    valorPago: decimal('valor_pago', { precision: 18, scale: 2 }).notNull(),
+    valorRestosAPagarInscritos: decimal('valor_restos_a_pagar_inscritos', { precision: 18, scale: 2 }),
+    valorRestosAPagarCancelado: decimal('valor_restos_a_pagar_cancelado', { precision: 18, scale: 2 }),
+    valorRestosAPagarPagos: decimal('valor_restos_a_pagar_pagos', { precision: 18, scale: 2 }),
+    
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_exec_desp_competencia').on(table.anoMesLancamento),
+    index('idx_exec_desp_ug').on(table.unidadeGestoraId),
+    index('idx_exec_desp_acao').on(table.acaoOrcamentariaId),
+    index('idx_exec_desp_municipio').on(table.municipioId),
+  ]
+);
+
+// ============================================================================
+// RELAÇÕES (RELATIONAL API)
+// ============================================================================
+
+export const execucaoDespesasRelations = relations(execucaoDespesas, ({ one }) => ({
+  unidadeGestora: one(unidadesGestoras, {
+    fields: [execucaoDespesas.unidadeGestoraId],
+    references: [unidadesGestoras.id],
+  }),
+  acaoOrcamentaria: one(acoesOrcamentarias, {
+    fields: [execucaoDespesas.acaoOrcamentariaId],
+    references: [acoesOrcamentarias.id],
+  }),
+  municipio: one(municipios, {
+    fields: [execucaoDespesas.municipioId],
+    references: [municipios.id],
+  }),
+  categoriaDespesa: one(categoriasDespesa, {
+    fields: [execucaoDespesas.categoriaDespesaId],
+    references: [categoriasDespesa.id],
+  }),
+  grupoDespesa: one(gruposDespesa, {
+    fields: [execucaoDespesas.grupoDespesaId],
+    references: [gruposDespesa.id],
+  }),
+  modalidadeAplicacao: one(modalidadesAplicacao, {
+    fields: [execucaoDespesas.modalidadeAplicacaoId],
+    references: [modalidadesAplicacao.id],
+  }),
+  elementoDespesa: one(elementosDespesa, {
+    fields: [execucaoDespesas.elementoDespesaId],
+    references: [elementosDespesa.id],
+  }),
+}));
