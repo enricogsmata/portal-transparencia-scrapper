@@ -26,15 +26,14 @@ async function persistData(data: ReceitasRow[]) {
                 codigoUnidadeGestora: sql`values(${Receitas.codigoUnidadeGestora})`,
                 nomeUnidadeGestora: sql`values(${Receitas.nomeUnidadeGestora})`,
                 categoriaEconomica: sql`values(${Receitas.categoriaEconomica})`,
-                origemReceita: sql`values(${Receitas.origemReceita})`,
-                especieReceita: sql`values(${Receitas.especieReceita})`,
+                origem: sql`values(${Receitas.origem})`,
                 detalhamento: sql`values(${Receitas.detalhamento})`,
-                valorPrevistoAtualizado: sql`values(${Receitas.valorPrevistoAtualizado})`,
+                valorPrevisto: sql`values(${Receitas.valorPrevisto})`,
                 valorLancado: sql`values(${Receitas.valorLancado})`,
                 valorRealizado: sql`values(${Receitas.valorRealizado})`,
                 percentualRealizado: sql`values(${Receitas.percentualRealizado})`,
                 dataLancamento: sql`values(${Receitas.dataLancamento})`,
-                anoExercicio: sql`values(${Receitas.anoExercicio})`,
+                exercicio: sql`values(${Receitas.exercicio})`,
                 exercicioReferencia: sql`values(${Receitas.exercicioReferencia})`,
                 mesReferencia: sql`values(${Receitas.mesReferencia})`,
                 diaReferencia: sql`values(${Receitas.diaReferencia})`,
@@ -62,19 +61,18 @@ const RECEITAS_HEADER_RULES: HeaderRule[] = [
     { key: 'codigoUnidadeGestora', matchExact: ['CODIGO UNIDADE GESTORA'] },
     { key: 'nomeUnidadeGestora', matchExact: ['NOME UNIDADE GESTORA'] },
     { key: 'categoriaEconomica', matchExact: ['CATEGORIA ECONOMICA'] },
-    { key: 'origemReceita', matchExact: ['ORIGEM RECEITA'] },
-    { key: 'especieReceita', matchExact: ['ESPECIE RECEITA'] },
+    { key: 'origem', matchExact: ['ORIGEM RECEITA', 'ORIGEM'] },
     { key: 'detalhamento', matchExact: ['DETALHAMENTO'] },
-    { key: 'valorPrevistoAtualizado', matchExact: ['VALOR PREVISTO ATUALIZADO'] },
+    { key: 'valorPrevisto', matchExact: ['VALOR PREVISTO ATUALIZADO', 'VALOR PREVISTO'] },
     { key: 'valorLancado', matchExact: ['VALOR LANCADO'] },
     { key: 'valorRealizado', matchExact: ['VALOR REALIZADO'] },
     { key: 'percentualRealizado', matchExact: ['PERCENTUAL REALIZADO'] },
     { key: 'dataLancamento', matchExact: ['DATA LANCAMENTO'] },
-    { key: 'anoExercicio', matchExact: ['ANO EXERCICIO'] },
+    { key: 'exercicio', matchExact: ['ANO EXERCICIO', 'EXERCICIO'] },
 ];
 
-function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
-    if (!header) return '';
+function resolveHeaderKey(header: string, rules: HeaderRule[]): string | null {
+    if (!header) return null;
     const cleanHeader = normalize(header);
 
     for (const rule of rules) {
@@ -94,7 +92,7 @@ function resolveHeaderKey(header: string, rules: HeaderRule[]): string {
         }
     }
 
-    return cleanHeader;
+    return null;
 }
 
 export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: ReferenceMetadata): Promise<number> {
