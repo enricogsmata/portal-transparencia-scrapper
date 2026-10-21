@@ -1,8 +1,6 @@
-// estados.seed.ts
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
-import pino from 'pino';
-import { silver_db, silver_pool } from '../../../database/silver_connection.js';
+import { silver_db } from '../../../database/silver_connection.js';
 import { estados } from '../../../database/silver_schema.js';
 import { new_logger } from '../../../services/logs.js';
 
@@ -82,7 +80,5 @@ export async function generateEstadosSeed(): Promise<void> {
   } catch (error) {
     log.error({ err: error }, 'Falha durante a execução do seed de estados.');
     process.exitCode = 1;
-  } finally {
-    await silver_pool.end();
   }
 }

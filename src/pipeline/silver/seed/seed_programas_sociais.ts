@@ -1,4 +1,5 @@
-import { silver_db, silver_pool } from '../../../database/silver_connection.js';
+import { sql } from 'drizzle-orm';
+import { silver_db } from '../../../database/silver_connection.js';
 import { programasSociais } from '../../../database/silver_schema.js';
 
 const CATALOGO_PROGRAMAS_SOCIAIS = [
@@ -17,17 +18,13 @@ const CATALOGO_PROGRAMAS_SOCIAIS = [
 ];
 
 export async function generateProgramasSociaisSeed() {
-  try {
-    await silver_db
-      .insert(programasSociais)
-      .values(CATALOGO_PROGRAMAS_SOCIAIS)
-      .onDuplicateKeyUpdate({
-        set: {
-          nome: (programasSociais.$inferInsert).nome,
-          descricao: (programasSociais.$inferInsert).descricao,
-        },
-      });
-  } finally {
-    await silver_pool.end();
-  }
+  await silver_db
+    .insert(programasSociais)
+    .values(CATALOGO_PROGRAMAS_SOCIAIS)
+    .onDuplicateKeyUpdate({
+      set: {
+        nome: sql`VALUES(nome)`,
+        descricao: sql`VALUES(descricao)`,
+      },
+    });
 }

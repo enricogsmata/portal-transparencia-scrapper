@@ -3,3 +3,4 @@ node_modules
 .temp_downloads/
 src/files/
 src/database/out/*
+script.ts

@@ -7,6 +7,9 @@ import {
   pessoasFisicas,
   programasSociais
 } from '../../../database/silver_schema.js';
+import { new_logger } from '../../../services/logs.js';
+import { parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 
 const logger = new_logger(import.meta.url);
 
