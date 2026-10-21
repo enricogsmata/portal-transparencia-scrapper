@@ -637,10 +637,10 @@ export const orcamentoDespesa = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     exercicio: char('exercicio', { length: 4 }).notNull(),
-    
+
     // Removido .references() para evitar o erro de limite de caracteres
     unidadeOrcamentariaId: bigint('unidade_orcamentaria_id', { mode: 'number' }),
-    
+
     acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
     categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
     grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
@@ -670,7 +670,7 @@ export const orcamentoDespesa = mysqlTable(
     index('idx_orc_desp_uo').on(table.unidadeOrcamentariaId),
     index('idx_orc_desp_acao').on(table.acaoOrcamentariaId),
     uniqueIndex('uq_orc_desp_chave_natural').on(table.chaveNatural),
-    
+
     // Declarando a chave estrangeira manualmente com nome curto
     foreignKey({
       name: 'fk_orc_desp_uo',
@@ -722,10 +722,10 @@ export const recursosTransferidos = mysqlTable(
     tipoTransferencia: varchar('tipo_transferencia', { length: 100 }).notNull(),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
     unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }).references(() => unidadesGestoras.id),
-    
+
     // Removido .references() para evitar o erro de limite de caracteres
     acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }),
-    
+
     favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }).references(() => pessoasFisicas.id),
     favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
     chaveNatural: chaveNaturalHash(
@@ -746,7 +746,7 @@ export const recursosTransferidos = mysqlTable(
     index('idx_rec_transf_municipio').on(table.municipioId),
     index('idx_rec_transf_ug').on(table.unidadeGestoraId),
     uniqueIndex('uq_rec_transf_chave_natural').on(table.chaveNatural),
-    
+
     // Declarando a chave estrangeira manualmente com nome curto
     foreignKey({
       name: 'fk_rec_transf_acao',
@@ -2044,7 +2044,7 @@ export const execucaoDespesas = mysqlTable(
     // Dimensões Orçamentárias
     categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
     grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
-    modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }).references(() => modalidadesAplicacao.id),
+    modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }),
     elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }).references(() => elementosDespesa.id),
     
     // Atributos textuais residuais da dimensão da Emenda (caso não haja tabela específica)
@@ -2080,6 +2080,12 @@ export const execucaoDespesas = mysqlTable(
     index('idx_exec_desp_acao').on(table.acaoOrcamentariaId),
     index('idx_exec_desp_municipio').on(table.municipioId),
     uniqueIndex('uq_exec_desp_chave_natural').on(table.chaveNatural),
+    // Declaração de FK com nome curto para evitar ultrapassar o limite do MySQL
+    foreignKey({
+      name: 'fk_exec_desp_mod_aplic',
+      columns: [table.modalidadeAplicacaoId],
+      foreignColumns: [modalidadesAplicacao.id],
+    }),
   ]
 );
 
@@ -2128,8 +2134,8 @@ export const emendasParlamentaresConvenios = mysqlTable(
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     emendaId: bigint('emenda_id', { mode: 'number' }).notNull(),
     convenioId: bigint('convenio_id', { mode: 'number' }),
-    funcaoId: bigint('funcao_id', { mode: 'number' }).references(() => funcoesOrcamentarias.id),
-    subfuncaoId: bigint('subfuncao_id', { mode: 'number' }).references(() => subfuncoesOrcamentarias.id),
+    funcaoId: bigint('funcao_id', { mode: 'number' }),
+    subfuncaoId: bigint('subfuncao_id', { mode: 'number' }),
     localidadeGasto: varchar('localidade_gasto', { length: 255 }),
     dataPublicacaoConvenio: date('data_publicacao_convenio', { mode: 'string' }),
     valorConvenio: decimal('valor_convenio', { precision: 18, scale: 2 }).notNull(),
@@ -2152,6 +2158,16 @@ export const emendasParlamentaresConvenios = mysqlTable(
       columns: [table.convenioId],
       foreignColumns: [convenios.id],
     }),
+    foreignKey({
+      name: 'fk_epc_funcao',
+      columns: [table.funcaoId],
+      foreignColumns: [funcoesOrcamentarias.id],
+    }),
+    foreignKey({
+      name: 'fk_epc_subfuncao',
+      columns: [table.subfuncaoId],
+      foreignColumns: [subfuncoesOrcamentarias.id],
+    }),
   ]
 );
 
@@ -2160,9 +2176,9 @@ export const emendasParlamentaresFavorecidos = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     emendaId: bigint('emenda_id', { mode: 'number' }).notNull(),
-    favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }).references(() => pessoasFisicas.id),
-    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
-    municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
+    favorecidoPfId: bigint('favorecido_pf_id', { mode: 'number' }),
+    favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }),
+    municipioId: bigint('municipio_id', { mode: 'number' }),
     anoMes: varchar('ano_mes', { length: 7 }),
     valorRecebido: decimal('valor_recebido', { precision: 18, scale: 2 }).notNull(),
     exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
@@ -2179,6 +2195,21 @@ export const emendasParlamentaresFavorecidos = mysqlTable(
       name: 'fk_epf_emenda',
       columns: [table.emendaId],
       foreignColumns: [emendasParlamentares.id],
+    }),
+    foreignKey({
+      name: 'fk_epf_fav_pf',
+      columns: [table.favorecidoPfId],
+      foreignColumns: [pessoasFisicas.id],
+    }),
+    foreignKey({
+      name: 'fk_epf_fav_pj',
+      columns: [table.favorecidoPjId],
+      foreignColumns: [pessoasJuridicas.id],
+    }),
+    foreignKey({
+      name: 'fk_epf_municipio',
+      columns: [table.municipioId],
+      foreignColumns: [municipios.id],
     }),
   ]
 );
