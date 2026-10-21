@@ -1,24 +1,22 @@
-// src/pipeline/silver/transformers/favorecidos-pj.ts
-
 import { sql, inArray } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
-import { 
-  FavorecidosPjCnpj, 
-  FavorecidosPjCnae, 
-  FavorecidosPjNaturezaJuridica 
+import {
+  FavorecidosPjCnpj,
+  FavorecidosPjCnae,
+  FavorecidosPjNaturezaJuridica
 } from '../../../database/bronze_schema.js';
-import { 
-  pessoasJuridicas, 
-  cnaes, 
-  naturezasJuridicas 
+import {
+  pessoasJuridicas,
+  cnaes,
+  naturezasJuridicas,
+  municipios
 } from '../../../database/silver_schema.js';
 import { formatCep, formatCnpj } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
-
-
 
 export async function processFavorecidosPjCnae() {
   const log = logger.forMethod('processFavorecidosPjCnae');
@@ -139,7 +137,7 @@ export async function processFavorecidosPjCnpj() {
     }
 
     const codigosCnae = [...new Set(bronzeData.map(b => b.codigoCnae).filter(Boolean) as string[])];
-    const cnaesDb = codigosCnae.length > 0 
+    const cnaesDb = codigosCnae.length > 0
       ? await silver_db.select({ id: cnaes.id, codigoSubclasse: cnaes.codigoSubclasse }).from(cnaes).where(inArray(cnaes.codigoSubclasse, codigosCnae))
       : [];
     const cnaeIdMap = new Map(cnaesDb.map(c => [c.codigoSubclasse, c.id]));
@@ -162,6 +160,11 @@ export async function processFavorecidosPjCnpj() {
           tipoPessoaRaw = null;
         }
 
+        const municipioId = MunicipioResolver.resolve({
+          nome: p.municipio,
+          uf: p.uf
+        });
+
         return {
           cnpj: cnpjFormatado!,
           razaoSocial: p.razaoSocial || 'NÃO INFORMADO',
@@ -174,6 +177,7 @@ export async function processFavorecidosPjCnpj() {
           complemento: p.complemento || null,
           cep: formatCep(p.cep),
           bairro: p.bairro || null,
+          municipioId: municipioId || null,
         };
       });
 
@@ -197,6 +201,7 @@ export async function processFavorecidosPjCnpj() {
             complemento: sql`COALESCE(VALUES(complemento), pessoas_juridicas.complemento)`,
             cep: sql`COALESCE(VALUES(cep), pessoas_juridicas.cep)`,
             bairro: sql`COALESCE(VALUES(bairro), pessoas_juridicas.bairro)`,
+            municipioId: sql`COALESCE(VALUES(municipio_id), pessoas_juridicas.municipio_id)`,
           },
         });
     }

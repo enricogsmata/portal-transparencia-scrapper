@@ -1,17 +1,16 @@
+// src/pipeline/silver/transformers/emendas-parlamentares.ts
 import { sql, inArray } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
-import { 
-  EmendasParlamentares, 
-  EmendasParlamentaresConvenios, 
-  EmendasParlamentaresFavorecido 
+import {
+  EmendasParlamentares,
+  EmendasParlamentaresConvenios,
+  EmendasParlamentaresFavorecido
 } from '../../../database/bronze_schema.js';
-import { 
-  emendasParlamentares, 
-  emendasParlamentaresConvenios, 
+import {
+  emendasParlamentares,
+  emendasParlamentaresConvenios,
   emendasParlamentaresFavorecidos,
-  estados, 
-  municipios,
   funcoesOrcamentarias,
   subfuncoesOrcamentarias,
   programasOrcamentarios,
@@ -19,9 +18,12 @@ import {
   planosOrcamentarios,
   pessoasFisicas,
   pessoasJuridicas,
-  convenios
+  convenios,
+  municipios,
+  estados
 } from '../../../database/silver_schema.js';
 import { formatCnpj, getDocumentType, formatCpf, parseDecimal, parseDate, formatAnoMes } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -97,44 +99,15 @@ export async function processEmendasParlamentares() {
       const poDb = poToUpsert.length > 0 ? await silver_db.select({ id: planosOrcamentarios.id, codigo: planosOrcamentarios.codigo }).from(planosOrcamentarios).where(inArray(planosOrcamentarios.codigo, poToUpsert.map(f => f.codigo))) : [];
       const poIdMap = new Map(poDb.map(f => [f.codigo, f.id]));
 
-      // 6. Municípios
-      const ufsLote = [...new Set(bronzeData.map(b => b.uf ? b.uf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach(b => {
-        if (b.municipio && b.uf && ufsValidas.has(b.uf.substring(0, 2).toUpperCase())) {
-          const nomeMun = b.municipio;
-          const ufSigla = b.uf.substring(0, 2).toUpperCase();
-          const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-          munToUpsertMap.set(key, { 
-            nome: nomeMun, 
-            ufSigla,
-            codigoIbge: b.codigoMunicipioIbge || null 
-          });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { codigoIbge: sql`COALESCE(VALUES(codigo_ibge), municipios.codigo_ibge)` } });
-      }
-
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-            .from(municipios)
-            .where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
       // 7. Entidade Principal (emendas_parlamentares)
       const emendasToUpsert = bronzeData.map(b => {
         if (!b.codigoEmenda || !b.anoEmenda || !b.tipoEmenda || !b.nomeAutorEmenda) return null;
 
-        const keyMunicipio = b.municipio && b.uf ? `${b.municipio.toUpperCase()}-${b.uf.substring(0, 2).toUpperCase()}` : null;
+        const municipioId = MunicipioResolver.resolve({
+          ibge: b.codigoMunicipioIbge,
+          nome: b.municipio,
+          uf: b.uf,
+        });
 
         return {
           codigoEmenda: b.codigoEmenda,
@@ -142,7 +115,7 @@ export async function processEmendasParlamentares() {
           tipoEmenda: b.tipoEmenda,
           autorEmenda: b.nomeAutorEmenda,
           numeroEmenda: b.numeroEmenda || null,
-          municipioId: keyMunicipio ? munIdMap.get(keyMunicipio) || null : null,
+          municipioId: municipioId || null,
           funcaoId: b.codigoFuncao ? funIdMap.get(b.codigoFuncao) || null : null,
           subfuncaoId: b.codigoSubfuncao ? sfunIdMap.get(b.codigoSubfuncao) || null : null,
           programaId: b.codigoPrograma ? progIdMap.get(b.codigoPrograma) || null : null,
@@ -165,18 +138,18 @@ export async function processEmendasParlamentares() {
 
         log.info({ data: { count: uniqueBatch.length } }, 'Inserindo/Atualizando emendas_parlamentares');
         for (let i = 0; i < uniqueBatch.length; i += 1000) {
-           await silver_db.insert(emendasParlamentares)
-             .values(uniqueBatch.slice(i, i + 1000))
-             .onDuplicateKeyUpdate({
-               set: {
-                 valorEmpenhado: sql`VALUES(valor_empenhado)`,
-                 valorLiquidado: sql`VALUES(valor_liquidado)`,
-                 valorPago: sql`VALUES(valor_pago)`,
-                 valorRestosAPagarInscritos: sql`VALUES(valor_restos_a_pagar_inscritos)`,
-                 valorRestosAPagarCancelados: sql`VALUES(valor_restos_a_pagar_cancelados)`,
-                 valorRestosAPagarPagos: sql`VALUES(valor_restos_a_pagar_pagos)`
-               }
-             });
+          await silver_db.insert(emendasParlamentares)
+            .values(uniqueBatch.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                valorEmpenhado: sql`VALUES(valor_empenhado)`,
+                valorLiquidado: sql`VALUES(valor_liquidado)`,
+                valorPago: sql`VALUES(valor_pago)`,
+                valorRestosAPagarInscritos: sql`VALUES(valor_restos_a_pagar_inscritos)`,
+                valorRestosAPagarCancelados: sql`VALUES(valor_restos_a_pagar_cancelados)`,
+                valorRestosAPagarPagos: sql`VALUES(valor_restos_a_pagar_pagos)`
+              }
+            });
         }
       }
 
@@ -251,14 +224,14 @@ export async function processEmendasParlamentaresConvenios() {
       }).filter(Boolean) as typeof emendasParlamentaresConvenios.$inferInsert[];
 
       if (epcToInsert.length > 0) {
-         // Idempotência por emenda no lote atual (substituição limpa)
-         const emendaIds = [...new Set(epcToInsert.map(e => e.emendaId))];
-         await silver_db.delete(emendasParlamentaresConvenios).where(inArray(emendasParlamentaresConvenios.emendaId, emendaIds));
+        // Idempotência por emenda no lote atual (substituição limpa)
+        const emendaIds = [...new Set(epcToInsert.map(e => e.emendaId))];
+        await silver_db.delete(emendasParlamentaresConvenios).where(inArray(emendasParlamentaresConvenios.emendaId, emendaIds));
 
-         log.info({ data: { count: epcToInsert.length } }, 'Inserindo emendas_parlamentares_convenios');
-         for (let i = 0; i < epcToInsert.length; i += 1000) {
-           await silver_db.insert(emendasParlamentaresConvenios).values(epcToInsert.slice(i, i + 1000));
-         }
+        log.info({ data: { count: epcToInsert.length } }, 'Inserindo emendas_parlamentares_convenios');
+        for (let i = 0; i < epcToInsert.length; i += 1000) {
+          await silver_db.insert(emendasParlamentaresConvenios).values(epcToInsert.slice(i, i + 1000));
+        }
       }
 
       offset += BATCH_SIZE;
@@ -289,37 +262,9 @@ export async function processEmendasParlamentaresFavorecido() {
         break;
       }
 
-      const ufsLote = [...new Set(bronzeData.map(b => b.ufFavorecido ? b.ufFavorecido.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach(b => {
-        if (b.municipioFavorecido && b.ufFavorecido && ufsValidas.has(b.ufFavorecido.substring(0, 2).toUpperCase())) {
-          const nomeMun = b.municipioFavorecido;
-          const ufSigla = b.ufFavorecido.substring(0, 2).toUpperCase();
-          const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-          munToUpsertMap.set(key, { nome: nomeMun, ufSigla });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-      }
-
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-            .from(municipios)
-            .where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
       const pfMap = new Map<string, typeof pessoasFisicas.$inferInsert>();
       const pjMap = new Map<string, typeof pessoasJuridicas.$inferInsert>();
-      
+
       bronzeData.forEach(b => {
         const type = getDocumentType(b.codigoFavorecido);
         if (type === 'PF') {
@@ -332,14 +277,14 @@ export async function processEmendasParlamentaresFavorecido() {
       });
 
       if (pjMap.size > 0) {
-        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({set: {razaoSocial: sql`VALUES(razao_social)`}});
+        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
       }
-      
+
       if (pfMap.size > 0) {
-         const exists = await silver_db.select({cpf: pessoasFisicas.cpf}).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
-         const eSet = new Set(exists.map(e => e.cpf));
-         const toInsert = Array.from(pfMap.values()).filter(p => !eSet.has(p.cpf));
-         if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
+        const exists = await silver_db.select({ cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
+        const eSet = new Set(exists.map(e => e.cpf));
+        const toInsert = Array.from(pfMap.values()).filter(p => !eSet.has(p.cpf));
+        if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
       }
 
       const pfDb = pfMap.size > 0 ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys()))) : [];
@@ -365,8 +310,10 @@ export async function processEmendasParlamentaresFavorecido() {
            favorecidoPjId = pjIdMap.get(formatCnpj(b.codigoFavorecido)!) || null;
         }
 
-        const keyMunicipio = b.municipioFavorecido && b.ufFavorecido ? `${b.municipioFavorecido.toUpperCase()}-${b.ufFavorecido.substring(0, 2).toUpperCase()}` : null;
-        const municipioId = keyMunicipio ? munIdMap.get(keyMunicipio) : null;
+        const municipioId = MunicipioResolver.resolve({
+            nome: b.municipioFavorecido,
+            uf: b.ufFavorecido,
+        });
 
         return {
           emendaId,
@@ -380,14 +327,14 @@ export async function processEmendasParlamentaresFavorecido() {
       }).filter(Boolean) as typeof emendasParlamentaresFavorecidos.$inferInsert[];
 
       if (favsToInsert.length > 0) {
-         // Idempotência por emenda no lote atual
-         const emendaIds = [...new Set(favsToInsert.map(f => f.emendaId))];
-         await silver_db.delete(emendasParlamentaresFavorecidos).where(inArray(emendasParlamentaresFavorecidos.emendaId, emendaIds));
+        // Idempotência por emenda no lote atual
+        const emendaIds = [...new Set(favsToInsert.map(f => f.emendaId))];
+        await silver_db.delete(emendasParlamentaresFavorecidos).where(inArray(emendasParlamentaresFavorecidos.emendaId, emendaIds));
 
-         log.info({ data: { count: favsToInsert.length } }, 'Inserindo emendas_parlamentares_favorecidos');
-         for (let i = 0; i < favsToInsert.length; i += 1000) {
-           await silver_db.insert(emendasParlamentaresFavorecidos).values(favsToInsert.slice(i, i + 1000));
-         }
+        log.info({ data: { count: favsToInsert.length } }, 'Inserindo emendas_parlamentares_favorecidos');
+        for (let i = 0; i < favsToInsert.length; i += 1000) {
+          await silver_db.insert(emendasParlamentaresFavorecidos).values(favsToInsert.slice(i, i + 1000));
+        }
       }
 
       offset += BATCH_SIZE;

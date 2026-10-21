@@ -11,11 +11,12 @@ import {
   renunciasFiscais, 
   empresasHabilitadas, 
   pessoasJuridicas, 
-  cnaes, 
-  municipios, 
-  estados 
+  cnaes,
+  municipios,
+  estados
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -56,43 +57,16 @@ async function syncEmpresasDimensions(bronzeBatch: EmpresaBronzeItem[]): Promise
     : [];
   const cnaeIdMap = new Map(cnaesDb.map(c => [c.codigoSubclasse, c.id]));
 
-  // 2. Dimensão Municípios
-  const ufsLote = [...new Set(bronzeBatch.map(b => b.uf ? b.uf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-  const estadosDb = ufsLote.length > 0
-    ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-    : [];
-  const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-  const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-  bronzeBatch.forEach(b => {
-    if (b.municipio && b.uf && ufsValidas.has(b.uf.substring(0, 2).toUpperCase())) {
-      const nomeMun = b.municipio;
-      const ufSigla = b.uf.substring(0, 2).toUpperCase();
-      const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-      munToUpsertMap.set(key, { nome: nomeMun, ufSigla });
-    }
-  });
-
-  const munToInsertList = Array.from(munToUpsertMap.values());
-  if (munToInsertList.length > 0) {
-    await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-  }
-
-  const municipiosDb = munToInsertList.length > 0
-    ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-        .from(municipios)
-        .where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-    : [];
-  const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
   // 3. Dimensão Pessoas Jurídicas
   const pjsToUpsertMap = new Map<string, typeof pessoasJuridicas.$inferInsert>();
   bronzeBatch.forEach(b => {
     const cnpj = formatCnpj(b.cnpj);
     if (cnpj) {
       const cnaeId = b.codigoCnae ? cnaeIdMap.get(b.codigoCnae) || null : null;
-      const munKey = (b.municipio && b.uf) ? `${b.municipio.toUpperCase()}-${b.uf.substring(0, 2).toUpperCase()}` : null;
-      const municipioId = munKey ? munIdMap.get(munKey) || null : null;
+      const municipioId = MunicipioResolver.resolve({
+         nome: b.municipio,
+         uf: b.uf
+      });
 
       pjsToUpsertMap.set(cnpj, {
         cnpj,

@@ -2,13 +2,14 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { GarantiaSafra } from '../../../database/bronze_schema.js';
-import { 
+import {
   beneficioPagamentos,
   pessoasFisicas,
-  municipios,
-  programasSociais
+  programasSociais,
+  municipios
 } from '../../../database/silver_schema.js';
 import { formatAnoMes, formatCpfByNis, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -36,7 +37,7 @@ export async function processGarantiaSafra() {
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'GARANTIA_SAFRA'));
-    
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -79,10 +80,10 @@ export async function processGarantiaSafra() {
       }
 
       const codigosSiafi = [...new Set(municipiosToUpsert.map(m => m.codigoSiafi))];
-      const municipiosDb = codigosSiafi.length > 0 
+      const municipiosDb = codigosSiafi.length > 0
         ? await silver_db.select({ id: municipios.id, codigoSiafi: municipios.codigoSiafi })
-            .from(municipios)
-            .where(inArray(municipios.codigoSiafi, codigosSiafi))
+          .from(municipios)
+          .where(inArray(municipios.codigoSiafi, codigosSiafi))
         : [];
       const munIdMap = new Map(municipiosDb.map(m => [m.codigoSiafi!, m.id]));
 
@@ -91,21 +92,27 @@ export async function processGarantiaSafra() {
       const pfsLote = bronzeData.filter(b => b.nisBeneficiario).map(b => {
         const nis = b.nisBeneficiario!.replace(/\D/g, '');
         const cpfFallback = formatCpfByNis(nis);
+        const municipioId = MunicipioResolver.resolve({
+          siafi: b.codigoSiafiMunicipio,
+          nome: b.nomeMunicipio,
+          uf: b.uf
+        });
+
         return {
           cpf: cpfFallback,
           nis,
           nome: b.nomeBeneficiario || 'NÃO INFORMADO',
-          codigoSiafiMunicipio: b.codigoSiafiMunicipio
+          municipioId
         };
       });
 
       const cpfsSet = [...new Set(pfsLote.map(p => p.cpf))];
       const cpfsExistentesDb = cpfsSet.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsSet))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsSet))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -115,7 +122,7 @@ export async function processGarantiaSafra() {
           cpf: p.cpf,
           nis: p.nis,
           nome: p.nome,
-          municipioId: p.codigoSiafiMunicipio ? munIdMap.get(p.codigoSiafiMunicipio) || null : null,
+          municipioId: p.municipioId || null,
         }));
 
       if (pfToInsert.length > 0) {
@@ -128,7 +135,7 @@ export async function processGarantiaSafra() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -136,16 +143,20 @@ export async function processGarantiaSafra() {
       const pagamentosToInsert = bronzeData
         .map(b => {
           if (!b.nisBeneficiario) return null;
-          
+
           const nis = b.nisBeneficiario.replace(/\D/g, '');
           const cpfFallback = formatCpfByNis(nis);
           const beneficiarioId = cpfIdMap.get(cpfFallback);
-          
-          const municipioId = b.codigoSiafiMunicipio ? munIdMap.get(b.codigoSiafiMunicipio) : null;
+
+          const municipioId = MunicipioResolver.resolve({
+            siafi: b.codigoSiafiMunicipio,
+            nome: b.nomeMunicipio,
+            uf: b.uf
+          });
           const valor = parseDecimal(b.valorBeneficio);
           const mesCompetencia = formatAnoMes(b.anoMesReferencia);
           const mesReferencia = b.mesReferencia ? `${b.exercicioReferencia || '0000'}-${b.mesReferencia.padStart(2, '0')}` : null;
-          
+
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
           return {

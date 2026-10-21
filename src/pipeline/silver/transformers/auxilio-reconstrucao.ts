@@ -2,13 +2,14 @@ import { sql, inArray, eq, and } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { AuxilioReconstrucao } from '../../../database/bronze_schema.js';
-import { 
-  beneficioPagamentos, 
-  pessoasFisicas, 
-  municipios, 
-  programasSociais 
+import {
+  beneficioPagamentos,
+  municipios,
+  pessoasFisicas,
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -42,7 +43,7 @@ export async function processAuxilioReconstrucao() {
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'AUXILIO_RECONSTRUCAO'));
-    
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -63,12 +64,12 @@ export async function processAuxilioReconstrucao() {
       // 3. Dimensão Municípios
       // Como não temos IBGE/SIAFI nesta base, buscamos pelo Nome + UF
       const nomesLote = [...new Set(bronzeData.map(b => b.nomeMunicipio).filter(Boolean) as string[])];
-      const municipiosDb = nomesLote.length > 0 
+      const municipiosDb = nomesLote.length > 0
         ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-            .from(municipios)
-            .where(inArray(municipios.nome, nomesLote))
+          .from(municipios)
+          .where(inArray(municipios.nome, nomesLote))
         : [];
-      
+
       const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
 
       const municipiosToInsert = bronzeData
@@ -90,7 +91,7 @@ export async function processAuxilioReconstrucao() {
         const novosMunicipiosDb = await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
           .from(municipios)
           .where(inArray(municipios.nome, uniqueMunicipios.map(m => m.nome)));
-        
+
         novosMunicipiosDb.forEach(m => munIdMap.set(`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id));
       }
 
@@ -98,10 +99,10 @@ export async function processAuxilioReconstrucao() {
       const cpfsLote = [...new Set(bronzeData.map(b => formatCpf(b.cpfFavorecido)).filter(Boolean) as string[])];
       const cpfsExistentesDb = cpfsLote.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsLote))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsLote))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -109,9 +110,11 @@ export async function processAuxilioReconstrucao() {
         .filter(b => b.cpfFavorecido && !cpfsExistentesSet.has(formatCpf(b.cpfFavorecido)!))
         .map(b => {
           const cpf = formatCpf(b.cpfFavorecido)!;
-          const keyMunicipio = b.nomeMunicipio && b.uf ? `${b.nomeMunicipio.toUpperCase()}-${b.uf.toUpperCase()}` : null;
-          const municipioId = keyMunicipio ? munIdMap.get(keyMunicipio) || null : null;
-          
+          const municipioId = MunicipioResolver.resolve({
+            nome: b.nomeMunicipio,
+            uf: b.uf,
+          });
+
           return {
             cpf,
             nome: b.nomeFavorecido || 'NÃO INFORMADO',
@@ -129,7 +132,7 @@ export async function processAuxilioReconstrucao() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -138,20 +141,22 @@ export async function processAuxilioReconstrucao() {
         .map(b => {
           const beneficiarioCpf = formatCpf(b.cpfFavorecido);
           const beneficiarioId = beneficiarioCpf ? cpfIdMap.get(beneficiarioCpf) : null;
-          const keyMunicipio = b.nomeMunicipio && b.uf ? `${b.nomeMunicipio.toUpperCase()}-${b.uf.toUpperCase()}` : null;
-          const municipioId = keyMunicipio ? munIdMap.get(keyMunicipio) : null;
+          const municipioId = MunicipioResolver.resolve({
+            nome: b.nomeMunicipio,
+            uf: b.uf,
+          });
           const valor = parseDecimal(b.valor);
           const dataPagamentoIso = parseDate(b.dataPagamento);
-          
+
           // Derivando mês de competência da data de pagamento se não existir explícito
-          let mesCompetencia = b.mesReferencia && b.exercicioReferencia 
-            ? `${b.exercicioReferencia}-${b.mesReferencia.padStart(2, '0')}` 
+          let mesCompetencia = b.mesReferencia && b.exercicioReferencia
+            ? `${b.exercicioReferencia}-${b.mesReferencia.padStart(2, '0')}`
             : null;
-            
+
           if (!mesCompetencia && dataPagamentoIso) {
             mesCompetencia = dataPagamentoIso.substring(0, 7);
           }
-          
+
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
           return {

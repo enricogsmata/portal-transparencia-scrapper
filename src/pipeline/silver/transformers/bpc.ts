@@ -2,13 +2,14 @@ import { sql, inArray, eq, and } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Bpc } from '../../../database/bronze_schema.js';
-import { 
-  beneficioPagamentos, 
-  pessoasFisicas, 
-  municipios, 
-  programasSociais 
+import {
+  beneficioPagamentos,
+  municipios,
+  pessoasFisicas,
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -56,7 +57,7 @@ export async function processBpc() {
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'BPC'));
-    
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -99,10 +100,10 @@ export async function processBpc() {
       }
 
       const codigosSiafi = [...new Set(municipiosToUpsert.map(m => m.codigoSiafi))];
-      const municipiosDb = codigosSiafi.length > 0 
+      const municipiosDb = codigosSiafi.length > 0
         ? await silver_db.select({ id: municipios.id, codigoSiafi: municipios.codigoSiafi })
-            .from(municipios)
-            .where(inArray(municipios.codigoSiafi, codigosSiafi))
+          .from(municipios)
+          .where(inArray(municipios.codigoSiafi, codigosSiafi))
         : [];
       const munIdMap = new Map(municipiosDb.map(m => [m.codigoSiafi!, m.id]));
 
@@ -110,8 +111,12 @@ export async function processBpc() {
       const pessoasMap = new Map<string, { cpf: string, nis: string | null, nome: string, munId: number | null }>();
 
       for (const b of bronzeData) {
-        const munId = b.codigoMunicipioSiafi ? munIdMap.get(b.codigoMunicipioSiafi) || null : null;
-        
+        const munId = MunicipioResolver.resolve({
+          siafi: b.codigoMunicipioSiafi,
+          nome: b.nomeMunicipio,
+          uf: b.uf,
+        });
+
         const cpfBen = formatCpf(b.cpfBeneficiario);
         if (cpfBen) {
           pessoasMap.set(cpfBen, {
@@ -136,10 +141,10 @@ export async function processBpc() {
       const cpfsLote = Array.from(pessoasMap.keys());
       const cpfsExistentesDb = cpfsLote.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsLote))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsLote))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -158,7 +163,7 @@ export async function processBpc() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, pfToInsert.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -170,7 +175,11 @@ export async function processBpc() {
           
           const beneficiarioId = beneficiarioCpf ? cpfIdMap.get(beneficiarioCpf) : null;
           const responsavelId = responsavelCpf ? cpfIdMap.get(responsavelCpf) : null;
-          const municipioId = b.codigoMunicipioSiafi ? munIdMap.get(b.codigoMunicipioSiafi) : null;
+          const municipioId = MunicipioResolver.resolve({
+            siafi: b.codigoMunicipioSiafi,
+            nome: b.nomeMunicipio,
+            uf: b.uf,
+          });
           
           const valor = parseDecimal(b.valorParcela);
           const mesCompetencia = formatAnoMes(b.mesCompetencia);

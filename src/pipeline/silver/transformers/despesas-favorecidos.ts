@@ -2,15 +2,16 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { RecebimentoRecursosFavorecido } from '../../../database/bronze_schema.js';
-import { 
+import {
   despesasPagamentos,
   pessoasFisicas,
   pessoasJuridicas,
   unidadesGestoras,
-  municipios,
-  estados
+  estados,
+  municipios
 } from '../../../database/silver_schema.js';
 import { formatAnoMes, formatCnpj, formatCpf, getDocumentType, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -43,9 +44,9 @@ export async function processRecebimentoRecursosFavorecido() {
       const ugsToUpsertMap = new Map<string, typeof unidadesGestoras.$inferInsert>();
       bronzeData.forEach((b) => {
         if (b.codigoUnidadeGestora) {
-          ugsToUpsertMap.set(b.codigoUnidadeGestora, { 
-            codigo: b.codigoUnidadeGestora, 
-            nome: b.nomeUnidadeGestora || 'NÃO INFORMADO' 
+          ugsToUpsertMap.set(b.codigoUnidadeGestora, {
+            codigo: b.codigoUnidadeGestora,
+            nome: b.nomeUnidadeGestora || 'NÃO INFORMADO'
           });
         }
       });
@@ -59,70 +60,44 @@ export async function processRecebimentoRecursosFavorecido() {
 
       const ugsDb = ugsToUpsert.length > 0
         ? await silver_db.select({ id: unidadesGestoras.id, codigo: unidadesGestoras.codigo })
-            .from(unidadesGestoras)
-            .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
+          .from(unidadesGestoras)
+          .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
         : [];
       const ugIdMap = new Map(ugsDb.map(ug => [ug.codigo, ug.id]));
-
-      // 3. Dimensão Municípios (Baseado em Nome e UF, pois não há código SIAFI/IBGE direto aqui)
-      const ufsLote = [...new Set(bronzeData.map(b => b.siglaUf ? b.siglaUf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach(b => {
-        if (b.nomeMunicipio && b.siglaUf && ufsValidas.has(b.siglaUf.substring(0, 2).toUpperCase())) {
-          const nomeMun = b.nomeMunicipio;
-          const ufSigla = b.siglaUf.substring(0, 2).toUpperCase();
-          const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-          munToUpsertMap.set(key, { nome: nomeMun, ufSigla });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-      }
-
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-            .from(municipios)
-            .where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
 
       // 4. Dimensão Pessoas Físicas e Jurídicas (Favorecidos)
       const pfMap = new Map<string, typeof pessoasFisicas.$inferInsert>();
       const pjMap = new Map<string, typeof pessoasJuridicas.$inferInsert>();
-      
+
       bronzeData.forEach(b => {
         const type = getDocumentType(b.codigoFavorecido);
-        const municipioId = (b.nomeMunicipio && b.siglaUf) ? munIdMap.get(`${b.nomeMunicipio.toUpperCase()}-${b.siglaUf.substring(0, 2).toUpperCase()}`) : null;
-        
+        const municipioId = MunicipioResolver.resolve({
+          nome: b.nomeMunicipio,
+          uf: b.siglaUf,
+        });
+
         if (type === 'PF') {
           const cpf = formatCpf(b.codigoFavorecido)!;
-          pfMap.set(cpf, { cpf, nome: b.nomeFavorecido || 'NÃO INFORMADO', municipioId: municipioId || null });
+          pfMap.set(cpf, { cpf, nome: b.nomeFavorecido || 'NÃO INFORMADO', municipioId });
         } else if (type === 'PJ') {
           const cnpj = formatCnpj(b.codigoFavorecido)!;
-          pjMap.set(cnpj, { cnpj, razaoSocial: b.nomeFavorecido || 'NÃO INFORMADO', municipioId: municipioId || null });
+          pjMap.set(cnpj, { cnpj, razaoSocial: b.nomeFavorecido || 'NÃO INFORMADO', municipioId, tipoPessoa: 'J' });
         }
       });
 
       // Upsert PJ
       const pjToUpsert = Array.from(pjMap.values());
       if (pjToUpsert.length > 0) {
-        await silver_db.insert(pessoasJuridicas).values(pjToUpsert).onDuplicateKeyUpdate({set: {razaoSocial: sql`VALUES(razao_social)`}});
+        await silver_db.insert(pessoasJuridicas).values(pjToUpsert).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
       }
 
       // Insert PF
       const pfToUpsert = Array.from(pfMap.values());
       if (pfToUpsert.length > 0) {
-         const exists = await silver_db.select({cpf: pessoasFisicas.cpf}).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, pfToUpsert.map(p=>p.cpf)));
-         const eSet = new Set(exists.map(e => e.cpf));
-         const toInsert = pfToUpsert.filter(p => !eSet.has(p.cpf));
-         if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
+        const exists = await silver_db.select({ cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, pfToUpsert.map(p => p.cpf)));
+        const eSet = new Set(exists.map(e => e.cpf));
+        const toInsert = pfToUpsert.filter(p => !eSet.has(p.cpf));
+        if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
       }
 
       const pfDb = pfToUpsert.length > 0 ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, pfToUpsert.map(p => p.cpf))) : [];
@@ -135,7 +110,7 @@ export async function processRecebimentoRecursosFavorecido() {
       const pagamentosToInsert = bronzeData.map(b => {
         const anoMesLancamento = formatAnoMes(b.anoMesLancamento);
         const unidadeGestoraId = b.codigoUnidadeGestora ? ugIdMap.get(b.codigoUnidadeGestora) : null;
-        
+
         if (!anoMesLancamento || !unidadeGestoraId || !b.codigoFavorecido) return null;
 
         const docType = getDocumentType(b.codigoFavorecido);
@@ -143,9 +118,9 @@ export async function processRecebimentoRecursosFavorecido() {
         let favorecidoPjId = null;
 
         if (docType === 'PF') {
-           favorecidoPfId = pfIdMap.get(formatCpf(b.codigoFavorecido)!) || null;
+          favorecidoPfId = pfIdMap.get(formatCpf(b.codigoFavorecido)!) || null;
         } else if (docType === 'PJ') {
-           favorecidoPjId = pjIdMap.get(formatCnpj(b.codigoFavorecido)!) || null;
+          favorecidoPjId = pjIdMap.get(formatCnpj(b.codigoFavorecido)!) || null;
         }
 
         if (!favorecidoPfId && !favorecidoPjId) return null;
@@ -153,7 +128,7 @@ export async function processRecebimentoRecursosFavorecido() {
         // Gerando código de pagamento sintético para agregar recebimentos mensais
         const codigoFavorecidoSintetico = docType === 'PF' ? formatCpf(b.codigoFavorecido) : formatCnpj(b.codigoFavorecido);
         const codigoPagamento = `REC-${anoMesLancamento}-${b.codigoUnidadeGestora}-${codigoFavorecidoSintetico}`;
-        
+
         // Data de emissão assumida como 1º dia do mês de lançamento para cumprir NOT NULL
         const dataEmissao = `${anoMesLancamento}-01`;
 

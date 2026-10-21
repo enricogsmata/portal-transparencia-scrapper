@@ -2,13 +2,14 @@ import { sql, inArray, eq, and } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { AuxilioEmergencial } from '../../../database/bronze_schema.js';
-import { 
-  beneficioPagamentos, 
-  pessoasFisicas, 
-  municipios, 
-  programasSociais 
+import {
+  beneficioPagamentos,
+  municipios,
+  pessoasFisicas,
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -42,7 +43,7 @@ export async function processAuxilioEmergencial() {
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'AUXILIO_EMERGENCIAL'));
-    
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -60,6 +61,7 @@ export async function processAuxilioEmergencial() {
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela auxilio_emergencial');
 
+      // src/pipeline/silver/transformers/auxilio-emergencial.ts
       // 3. Dimensão Municípios (IBGE)
       const municipiosToUpsert = bronzeData
         .filter((b) => b.codigoMunicipioIbge && b.uf)
@@ -85,10 +87,10 @@ export async function processAuxilioEmergencial() {
       }
 
       const codigosIbge = [...new Set(municipiosToUpsert.map(m => m.codigoIbge))];
-      const municipiosDb = codigosIbge.length > 0 
+      const municipiosDb = codigosIbge.length > 0
         ? await silver_db.select({ id: municipios.id, codigoIbge: municipios.codigoIbge })
-            .from(municipios)
-            .where(inArray(municipios.codigoIbge, codigosIbge))
+          .from(municipios)
+          .where(inArray(municipios.codigoIbge, codigosIbge))
         : [];
       const munIdMap = new Map(municipiosDb.map(m => [m.codigoIbge!, m.id]));
 
@@ -118,10 +120,10 @@ export async function processAuxilioEmergencial() {
       const cpfsLote = Array.from(pessoasMap.keys());
       const cpfsExistentesDb = cpfsLote.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsLote))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsLote))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -139,7 +141,7 @@ export async function processAuxilioEmergencial() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, pfToInsert.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -148,12 +150,16 @@ export async function processAuxilioEmergencial() {
         .map(b => {
           const beneficiarioCpf = formatCpf(b.cpfBeneficiario);
           const responsavelCpf = formatCpf(b.cpfResponsavel);
-          
+
           const beneficiarioId = beneficiarioCpf ? cpfIdMap.get(beneficiarioCpf) : null;
           const responsavelId = responsavelCpf ? cpfIdMap.get(responsavelCpf) : null;
-          const municipioId = b.codigoMunicipioIbge ? munIdMap.get(b.codigoMunicipioIbge) : null;
+          const municipioId = MunicipioResolver.resolve({
+            ibge: b.codigoMunicipioIbge,
+            nome: b.nomeMunicipio,
+            uf: b.uf,
+          });
           const valor = parseDecimal(b.valorBeneficio);
-          
+
           if (!beneficiarioId || !municipioId || !b.mesDisponibilizacao || valor === null) return null;
 
           return {

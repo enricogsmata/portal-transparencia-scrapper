@@ -2,14 +2,15 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { NovoBolsaFamilia } from '../../../database/bronze_schema.js';
-import { 
+import {
   beneficioPagamentos,
   pessoasFisicas,
-  municipios,
   programasSociais,
+  municipios,
   estados
 } from '../../../database/silver_schema.js';
 import { formatCpf, formatAnoMes, parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -37,7 +38,7 @@ export async function processNovoBolsaFamilia() {
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'NOVO_BOLSA_FAMILIA'));
-    
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -55,54 +56,16 @@ export async function processNovoBolsaFamilia() {
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela novo_bolsa_familia');
 
-      // 3. Dimensão Municípios (SIAFI)
-      const ufsLote = [...new Set(bronzeData.map(b => b.uf ? b.uf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const municipiosToUpsert = bronzeData
-        .filter(b => b.codigoMunicipioSiafi && b.uf && ufsValidas.has(b.uf.substring(0, 2).toUpperCase()))
-        .map(b => ({
-          codigoSiafi: b.codigoMunicipioSiafi!,
-          nome: b.nomeMunicipio || 'NÃO INFORMADO',
-          ufSigla: b.uf!.substring(0, 2).toUpperCase(),
-        }));
-
-      if (municipiosToUpsert.length > 0) {
-        const uniqueMunMap = new Map<string, typeof municipiosToUpsert[0]>();
-        for (const m of municipiosToUpsert) uniqueMunMap.set(m.codigoSiafi, m);
-        const uniqueMunicipios = Array.from(uniqueMunMap.values());
-
-        await silver_db.insert(municipios)
-          .values(uniqueMunicipios)
-          .onDuplicateKeyUpdate({
-            set: {
-              nome: sql`VALUES(nome)`,
-              ufSigla: sql`VALUES(uf_sigla)`,
-            },
-          });
-      }
-
-      const codigosSiafi = [...new Set(municipiosToUpsert.map(m => m.codigoSiafi))];
-      const municipiosDb = codigosSiafi.length > 0 
-        ? await silver_db.select({ id: municipios.id, codigoSiafi: municipios.codigoSiafi })
-            .from(municipios)
-            .where(inArray(municipios.codigoSiafi, codigosSiafi))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [m.codigoSiafi!, m.id]));
-
       // 4. Dimensão Pessoas Físicas (Beneficiários)
       const pfsLote = bronzeData.filter(b => formatCpf(b.cpfFavorecido));
       const cpfsSet = [...new Set(pfsLote.map(p => formatCpf(p.cpfFavorecido)!).filter(Boolean))];
-      
+
       const cpfsExistentesDb = cpfsSet.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsSet))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsSet))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -110,11 +73,16 @@ export async function processNovoBolsaFamilia() {
         .filter(p => !cpfsExistentesSet.has(formatCpf(p.cpfFavorecido)!))
         .map(b => {
           const cpf = formatCpf(b.cpfFavorecido)!;
+          const municipioId = MunicipioResolver.resolve({
+            siafi: b.codigoMunicipioSiafi,
+            nome: b.nomeMunicipio,
+            uf: b.uf
+          });
           return {
             cpf,
             nis: b.nisFavorecido || null,
             nome: b.nomeFavorecido || 'NÃO INFORMADO',
-            municipioId: b.codigoMunicipioSiafi ? munIdMap.get(b.codigoMunicipioSiafi) || null : null,
+            municipioId: municipioId || null,
           };
         });
 
@@ -128,7 +96,7 @@ export async function processNovoBolsaFamilia() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -137,13 +105,17 @@ export async function processNovoBolsaFamilia() {
         .map(b => {
           const cpf = formatCpf(b.cpfFavorecido);
           const beneficiarioId = cpf ? cpfIdMap.get(cpf) : null;
-          
-          const municipioId = b.codigoMunicipioSiafi ? munIdMap.get(b.codigoMunicipioSiafi) : null;
-          
+
+          const municipioId = MunicipioResolver.resolve({
+            siafi: b.codigoMunicipioSiafi,
+            nome: b.nomeMunicipio,
+            uf: b.uf
+          });
+
           const valor = parseDecimal(b.valorParcela);
           const mesCompetencia = formatAnoMes(b.mesCompetencia);
           const mesReferencia = formatAnoMes(b.mesReferencia);
-          
+
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
           return {

@@ -2,22 +2,21 @@ import { sql, inArray, and } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { RecursosTransferidos } from '../../../database/bronze_schema.js';
-import { 
+import {
   recursosTransferidos,
   unidadesGestoras,
-  municipios,
-  estados,
   acoesOrcamentarias,
   pessoasFisicas,
   pessoasJuridicas
 } from '../../../database/silver_schema.js';
-import { 
-  formatCnpj, 
-  formatCpf, 
-  getDocumentType, 
-  formatAnoMes, 
-  parseDecimal 
+import {
+  formatCnpj,
+  formatCpf,
+  getDocumentType,
+  formatAnoMes,
+  parseDecimal
 } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -50,9 +49,9 @@ export async function processRecursosTransferidos() {
       const ugsToUpsertMap = new Map<string, typeof unidadesGestoras.$inferInsert>();
       bronzeData.forEach((b) => {
         if (b.codigoUnidadeGestora) {
-          ugsToUpsertMap.set(b.codigoUnidadeGestora, { 
-            codigo: b.codigoUnidadeGestora, 
-            nome: b.nomeUnidadeGestora || 'NÃO INFORMADO' 
+          ugsToUpsertMap.set(b.codigoUnidadeGestora, {
+            codigo: b.codigoUnidadeGestora,
+            nome: b.nomeUnidadeGestora || 'NÃO INFORMADO'
           });
         }
       });
@@ -66,48 +65,10 @@ export async function processRecursosTransferidos() {
 
       const ugsDb = ugsToUpsert.length > 0
         ? await silver_db.select({ id: unidadesGestoras.id, codigo: unidadesGestoras.codigo })
-            .from(unidadesGestoras)
-            .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
+          .from(unidadesGestoras)
+          .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
         : [];
       const ugIdMap = new Map(ugsDb.map(ug => [ug.codigo, ug.id]));
-
-      // 3. Dimensão Municípios e Estados
-      const ufsLote = [...new Set(bronzeData.map(b => b.uf ? b.uf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach((b) => {
-        if (b.codigoMunicipioSiafi && b.uf && ufsValidas.has(b.uf.substring(0, 2).toUpperCase())) {
-          munToUpsertMap.set(b.codigoMunicipioSiafi, {
-            codigoSiafi: b.codigoMunicipioSiafi,
-            nome: b.nomeMunicipio || 'NÃO INFORMADO',
-            ufSigla: b.uf.substring(0, 2).toUpperCase(),
-          });
-        }
-      });
-
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios)
-          .values(munToInsertList)
-          .onDuplicateKeyUpdate({
-            set: {
-              nome: sql`VALUES(nome)`,
-              ufSigla: sql`VALUES(uf_sigla)`,
-            },
-          });
-      }
-
-      const codigosSiafi = munToInsertList.map(m => m.codigoSiafi!);
-      const municipiosDb = codigosSiafi.length > 0 
-        ? await silver_db.select({ id: municipios.id, codigoSiafi: municipios.codigoSiafi })
-            .from(municipios)
-            .where(inArray(municipios.codigoSiafi, codigosSiafi))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [m.codigoSiafi!, m.id]));
 
       // 4. Dimensão Ações Orçamentárias
       const acoesToUpsertMap = new Map<string, typeof acoesOrcamentarias.$inferInsert>();
@@ -135,8 +96,8 @@ export async function processRecursosTransferidos() {
 
       const acoesDb = acoesToUpsert.length > 0
         ? await silver_db.select({ id: acoesOrcamentarias.id, codigo: acoesOrcamentarias.codigo })
-            .from(acoesOrcamentarias)
-            .where(inArray(acoesOrcamentarias.codigo, acoesToUpsert.map(a => a.codigo)))
+          .from(acoesOrcamentarias)
+          .where(inArray(acoesOrcamentarias.codigo, acoesToUpsert.map(a => a.codigo)))
         : [];
       const acaoIdMap = new Map(acoesDb.map(a => [a.codigo, a.id]));
 
@@ -146,7 +107,11 @@ export async function processRecursosTransferidos() {
 
       bronzeData.forEach((b) => {
         const type = getDocumentType(b.codigoFavorecido);
-        const municipioId = b.codigoMunicipioSiafi ? munIdMap.get(b.codigoMunicipioSiafi) || null : null;
+        const municipioId = MunicipioResolver.resolve({
+          siafi: b.codigoMunicipioSiafi,
+          nome: b.nomeMunicipio,
+          uf: b.uf
+        });
 
         if (type === 'PF') {
           const cpf = formatCpf(b.codigoFavorecido)!;
@@ -190,11 +155,11 @@ export async function processRecursosTransferidos() {
         }
       }
 
-      const pfDb = pfToUpsert.length > 0 
-        ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, pfToUpsert.map(p => p.cpf))) 
+      const pfDb = pfToUpsert.length > 0
+        ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, pfToUpsert.map(p => p.cpf)))
         : [];
-      const pjDb = pjToUpsert.length > 0 
-        ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj }).from(pessoasJuridicas).where(inArray(pessoasJuridicas.cnpj, pjToUpsert.map(p => p.cnpj))) 
+      const pjDb = pjToUpsert.length > 0
+        ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj }).from(pessoasJuridicas).where(inArray(pessoasJuridicas.cnpj, pjToUpsert.map(p => p.cnpj)))
         : [];
       const pfIdMap = new Map(pfDb.map(p => [p.cpf, p.id]));
       const pjIdMap = new Map(pjDb.map(p => [p.cnpj, p.id]));
@@ -207,7 +172,11 @@ export async function processRecursosTransferidos() {
           if (!anoMes || valorTransferido === null) return null;
 
           const unidadeGestoraId = b.codigoUnidadeGestora ? ugIdMap.get(b.codigoUnidadeGestora) || null : null;
-          const municipioId = b.codigoMunicipioSiafi ? munIdMap.get(b.codigoMunicipioSiafi) || null : null;
+          const municipioId = MunicipioResolver.resolve({
+            siafi: b.codigoMunicipioSiafi,
+            nome: b.nomeMunicipio,
+            uf: b.uf
+          });
           const acaoOrcamentariaId = b.codigoAcao ? acaoIdMap.get(b.codigoAcao) || null : null;
 
           let favorecidoPfId = null;

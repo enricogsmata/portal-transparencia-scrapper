@@ -2,17 +2,18 @@ import { sql, inArray } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { EmendasParlamentaresDocumentosDespesa } from '../../../database/bronze_schema.js';
-import { 
+import {
   emendasParlamentares,
   unidadesGestoras,
   pessoasFisicas,
   pessoasJuridicas,
-  municipios,
-  estados,
   despesasEmpenhos,
-  despesasPagamentos
+  despesasPagamentos,
+  municipios,
+  estados
 } from '../../../database/silver_schema.js';
 import { formatCnpj, formatCpf, getDocumentType, parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -42,9 +43,9 @@ export async function processEmendasParlamentaresDocumentosDespesa() {
       const ugsToUpsertMap = new Map<string, typeof unidadesGestoras.$inferInsert>();
       bronzeData.forEach((b) => {
         if (b.codigoUg) {
-          ugsToUpsertMap.set(b.codigoUg, { 
-            codigo: b.codigoUg, 
-            nome: b.ug || 'NÃO INFORMADO' 
+          ugsToUpsertMap.set(b.codigoUg, {
+            codigo: b.codigoUg,
+            nome: b.ug || 'NÃO INFORMADO'
           });
         }
       });
@@ -57,40 +58,17 @@ export async function processEmendasParlamentaresDocumentosDespesa() {
         : [];
       const ugIdMap = new Map(ugsDb.map(ug => [ug.codigo, ug.id]));
 
-      // 2. Municípios e Estados
-      const ufsLote = [...new Set(bronzeData.map(b => b.ufFavorecido ? b.ufFavorecido.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach(b => {
-        if (b.municipioFavorecido && b.ufFavorecido && ufsValidas.has(b.ufFavorecido.substring(0, 2).toUpperCase())) {
-          const nomeMun = b.municipioFavorecido;
-          const ufSigla = b.ufFavorecido.substring(0, 2).toUpperCase();
-          const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-          munToUpsertMap.set(key, { nome: nomeMun, ufSigla });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-      }
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla }).from(municipios).where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
       // 3. Favorecidos (PF/PJ)
       const pfMap = new Map<string, typeof pessoasFisicas.$inferInsert>();
       const pjMap = new Map<string, typeof pessoasJuridicas.$inferInsert>();
-      
+
       bronzeData.forEach(b => {
         const type = getDocumentType(b.codigoFavorecido);
-        const municipioId = (b.municipioFavorecido && b.ufFavorecido) ? munIdMap.get(`${b.municipioFavorecido.toUpperCase()}-${b.ufFavorecido.substring(0, 2).toUpperCase()}`) : null;
-        
+        const municipioId = MunicipioResolver.resolve({
+          nome: b.municipioFavorecido,
+          uf: b.ufFavorecido,
+        });
+
         if (type === 'PF') {
           const cpf = formatCpf(b.codigoFavorecido)!;
           pfMap.set(cpf, { cpf, nome: b.favorecido || 'NÃO INFORMADO', municipioId: municipioId || null });
@@ -101,14 +79,14 @@ export async function processEmendasParlamentaresDocumentosDespesa() {
       });
 
       if (pjMap.size > 0) {
-        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({set: {razaoSocial: sql`VALUES(razao_social)`}});
+        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
       }
-      
+
       if (pfMap.size > 0) {
-         const exists = await silver_db.select({cpf: pessoasFisicas.cpf}).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
-         const eSet = new Set(exists.map(e => e.cpf));
-         const toInsert = Array.from(pfMap.values()).filter(p => !eSet.has(p.cpf));
-         if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
+        const exists = await silver_db.select({ cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
+        const eSet = new Set(exists.map(e => e.cpf));
+        const toInsert = Array.from(pfMap.values()).filter(p => !eSet.has(p.cpf));
+        if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
       }
 
       const pfDb = pfMap.size > 0 ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys()))) : [];
@@ -153,8 +131,8 @@ export async function processEmendasParlamentaresDocumentosDespesa() {
         // Inserir apenas os novos empenhos (caso existam pela extração direta do SIAFI, ignora)
         // Isso assume que as emendas geraram documentos não listados no bulk principal.
         await silver_db.insert(despesasEmpenhos)
-            .values(uniqueEmpenhos)
-            .onDuplicateKeyUpdate({ set: { valorOriginalEmpenho: sql`VALUES(valor_original_empenho)` }});
+          .values(uniqueEmpenhos)
+          .onDuplicateKeyUpdate({ set: { valorOriginalEmpenho: sql`VALUES(valor_original_empenho)` } });
       }
 
       // 6. Inserção de Pagamentos
@@ -186,8 +164,8 @@ export async function processEmendasParlamentaresDocumentosDespesa() {
         const uniquePagamentos = Array.from(uniqueMap.values());
 
         await silver_db.insert(despesasPagamentos)
-            .values(uniquePagamentos)
-            .onDuplicateKeyUpdate({ set: { valorOriginalPagamento: sql`VALUES(valor_original_pagamento)` }});
+          .values(uniquePagamentos)
+          .onDuplicateKeyUpdate({ set: { valorOriginalPagamento: sql`VALUES(valor_original_pagamento)` } });
       }
 
       offset += BATCH_SIZE;

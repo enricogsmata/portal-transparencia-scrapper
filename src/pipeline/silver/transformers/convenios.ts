@@ -10,9 +10,10 @@ import {
   convenioOrdensBancarias, 
   unidadesGestoras, 
   pessoasJuridicas, 
-  municipios 
+  municipios
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -128,7 +129,11 @@ export async function processConveniosTable() {
         const unidadeGestoraConcedenteId = b.codigoUgConcedente ? ugIdMap.get(b.codigoUgConcedente) : null;
         const convenenteCnpj = formatCnpj(b.codigoConvenente);
         const convenenteId = convenenteCnpj ? pjIdMap.get(convenenteCnpj) : null;
-        const municipioId = b.codigoSiafiMunicipio ? munIdMap.get(b.codigoSiafiMunicipio) : null;
+        const municipioId = MunicipioResolver.resolve({
+          siafi: b.codigoSiafiMunicipio,
+          nome: b.nomeMunicipio,
+          uf: b.uf,
+        });
         
         const valorConvenio = parseDecimal(b.valorConvenio);
 

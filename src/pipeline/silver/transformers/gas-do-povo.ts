@@ -2,15 +2,16 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { GasDoPovo } from '../../../database/bronze_schema.js';
-import { 
+import {
   beneficioPagamentos,
   pessoasFisicas,
   pessoasJuridicas,
-  municipios,
   programasSociais,
+  municipios,
   estados
 } from '../../../database/silver_schema.js';
 import { formatCpf, formatCnpj, formatAnoMes, parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -38,7 +39,7 @@ export async function processGasDoPovo() {
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'GAS_DO_POVO'));
-    
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -56,47 +57,16 @@ export async function processGasDoPovo() {
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela gas_do_povo');
 
-      // 3. Dimensão Municípios (Baseado em Nome e UF, pois o IBGE aqui costuma vir como 'codigoMunicipio')
-      const ufsLote = [...new Set(bronzeData.map(b => b.uf ? b.uf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach(b => {
-        if (b.nomeMunicipio && b.uf && ufsValidas.has(b.uf.substring(0, 2).toUpperCase())) {
-          const nomeMun = b.nomeMunicipio;
-          const ufSigla = b.uf.substring(0, 2).toUpperCase();
-          const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-          munToUpsertMap.set(key, { 
-            nome: nomeMun, 
-            ufSigla,
-            codigoIbge: b.codigoMunicipio || null 
-          });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { codigoIbge: sql`COALESCE(VALUES(codigo_ibge), municipios.codigo_ibge)` } });
-      }
-
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla }).from(municipios).where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
       // 4. Dimensão Pessoas Físicas (Beneficiários)
       const pfsLote = bronzeData.filter(b => formatCpf(b.cpfBeneficiario));
       const cpfsSet = [...new Set(pfsLote.map(p => formatCpf(p.cpfBeneficiario)!).filter(Boolean))];
-      
+
       const cpfsExistentesDb = cpfsSet.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsSet))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsSet))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -104,11 +74,15 @@ export async function processGasDoPovo() {
         .filter(p => !cpfsExistentesSet.has(formatCpf(p.cpfBeneficiario)!))
         .map(b => {
           const cpf = formatCpf(b.cpfBeneficiario)!;
-          const keyMunicipio = b.nomeMunicipio && b.uf ? `${b.nomeMunicipio.toUpperCase()}-${b.uf.substring(0, 2).toUpperCase()}` : null;
+          const municipioId = MunicipioResolver.resolve({
+            ibge: b.codigoMunicipio,
+            nome: b.nomeMunicipio,
+            uf: b.uf
+          });
           return {
             cpf,
             nome: b.nomeBeneficiario || 'NÃO INFORMADO',
-            municipioId: keyMunicipio ? munIdMap.get(keyMunicipio) || null : null,
+            municipioId: municipioId || null,
           };
         });
 
@@ -122,7 +96,7 @@ export async function processGasDoPovo() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -131,9 +105,9 @@ export async function processGasDoPovo() {
       bronzeData.forEach((b) => {
         const cnpj = formatCnpj(b.cnpjEstabelecimento);
         if (cnpj) {
-          pjsToUpsertMap.set(cnpj, { 
-            cnpj, 
-            razaoSocial: b.nomeEstabelecimento || 'NÃO INFORMADO' 
+          pjsToUpsertMap.set(cnpj, {
+            cnpj,
+            razaoSocial: b.nomeEstabelecimento || 'NÃO INFORMADO'
           });
         }
       });
@@ -150,13 +124,16 @@ export async function processGasDoPovo() {
         .map(b => {
           const cpf = formatCpf(b.cpfBeneficiario);
           const beneficiarioId = cpf ? cpfIdMap.get(cpf) : null;
-          
-          const keyMunicipio = b.nomeMunicipio && b.uf ? `${b.nomeMunicipio.toUpperCase()}-${b.uf.substring(0, 2).toUpperCase()}` : null;
-          const municipioId = keyMunicipio ? munIdMap.get(keyMunicipio) : null;
-          
+
+          const municipioId = MunicipioResolver.resolve({
+            ibge: b.codigoMunicipio,
+            nome: b.nomeMunicipio,
+            uf: b.uf
+          });
+
           const valor = parseDecimal(b.valorBeneficio);
           const mesCompetencia = formatAnoMes(b.mesReferencia);
-          
+
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
           return {
@@ -164,7 +141,7 @@ export async function processGasDoPovo() {
             beneficiarioId,
             municipioId,
             mesCompetencia,
-            mesReferencia: mesCompetencia, 
+            mesReferencia: mesCompetencia,
             valor,
             dataDisponibilizacao: parseDate(b.dataInicioVigenciaVale) || null,
             dataSaque: parseDate(b.dataRetiradaVale) || null,

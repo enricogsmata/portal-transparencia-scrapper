@@ -1,3 +1,4 @@
+// src/pipeline/silver/transformers/licitacoes.ts
 import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
@@ -13,11 +14,12 @@ import {
   licitacaoParticipantes, 
   despesasEmpenhos,
   unidadesGestoras,
+  pessoasJuridicas,
   municipios,
-  estados,
-  pessoasJuridicas
+  estados
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -64,39 +66,15 @@ export async function processLicitacao() {
         : [];
       const ugIdMap = new Map(ugsDb.map(ug => [ug.codigo, ug.id]));
 
-      // 2. Municípios e Estados
-      const ufsLote = [...new Set(bronzeData.map(b => b.uf ? b.uf.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])];
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      bronzeData.forEach(b => {
-        if (b.municipio && b.uf && ufsValidas.has(b.uf.substring(0, 2).toUpperCase())) {
-          const nomeMun = b.municipio;
-          const ufSigla = b.uf.substring(0, 2).toUpperCase();
-          const key = `${nomeMun.toUpperCase()}-${ufSigla}`;
-          munToUpsertMap.set(key, { nome: nomeMun, ufSigla });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-      }
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla }).from(municipios).where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
       // 3. Entidade de Licitações
       const licitacoesToInsert = bronzeData.map(b => {
         const unidadeGestoraId = b.codigoUg ? ugIdMap.get(b.codigoUg) : null;
         if (!unidadeGestoraId || !b.numeroLicitacao || !b.modalidadeCompra || !b.objeto) return null;
 
-        const keyMunicipio = b.municipio && b.uf ? `${b.municipio.toUpperCase()}-${b.uf.substring(0, 2).toUpperCase()}` : null;
-        const municipioId = keyMunicipio ? munIdMap.get(keyMunicipio) : null;
+        const municipioId = MunicipioResolver.resolve({
+            nome: b.municipio,
+            uf: b.uf
+        });
 
         return {
           numeroLicitacao: b.numeroLicitacao,

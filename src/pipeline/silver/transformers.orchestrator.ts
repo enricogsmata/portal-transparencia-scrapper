@@ -3,6 +3,8 @@ import { new_logger } from '../../services/logs.js';
 import { generateMunicipiosSeed } from '../bronze/processors/municipios-seed-generator.js';
 import { scrapeSiafiMunicipios } from '../bronze/processors/siafi-scrapper.js';
 import { generateEstadosSeed } from './seed/estados.seed.js';
+import { MunicipioResolver } from './shared/municipio-resolver.js';
+import { initMunicipios } from './transformers/init-municipios.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -16,8 +18,10 @@ export async function runSilverOrchestrator() {
 
   const tasks: TransformerTask[] = [
     { name: 'siafi-municipios', execute: scrapeSiafiMunicipios },
-    { name: 'municipios-seed', execute: generateMunicipiosSeed },
     { name: 'seed-estados', execute: generateEstadosSeed },
+    { name: 'municipios-seed', execute: generateMunicipiosSeed },
+    { name: 'init-municipios', execute: initMunicipios },
+    { name: 'municipio-resolver', execute: MunicipioResolver.load },
   ];
 
   log.info({ data: { totalTasks: tasks.length } }, 'Iniciando orquestração da camada Silver');

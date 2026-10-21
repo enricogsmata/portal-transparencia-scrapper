@@ -1,27 +1,28 @@
 import { sql, inArray } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
-import { 
-  NotaFiscal, 
-  NotaFiscalEvento, 
-  NotaFiscalItem 
+import {
+  NotaFiscal,
+  NotaFiscalEvento,
+  NotaFiscalItem
 } from '../../../database/bronze_schema.js';
-import { 
-  notasFiscais, 
-  notaFiscalEventos, 
-  notaFiscalItens, 
-  pessoasFisicas, 
-  pessoasJuridicas, 
-  municipios, 
-  estados 
+import {
+  notasFiscais,
+  notaFiscalEventos,
+  notaFiscalItens,
+  pessoasFisicas,
+  pessoasJuridicas,
+  municipios,
+  estados
 } from '../../../database/silver_schema.js';
-import { 
-  formatCnpj, 
-  formatCpf, 
-  getDocumentType, 
-  parseDate, 
-  parseDecimal 
+import {
+  formatCnpj,
+  formatCpf,
+  getDocumentType,
+  parseDate,
+  parseDecimal
 } from '../shared/formatters.js';
+import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 
 const logger = new_logger(import.meta.url);
@@ -49,50 +50,23 @@ export async function processNotaFiscal() {
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela nota_fiscal');
 
-      // 1. Municípios e Estados (Emitente e Destinatário)
-      const ufsLote = [
-        ...new Set(bronzeData.map(b => b.ufEmitente ? b.ufEmitente.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[]),
-        ...new Set(bronzeData.map(b => b.ufDestinatario ? b.ufDestinatario.substring(0, 2).toUpperCase() : null).filter(Boolean) as string[])
-      ];
-      
-      const estadosDb = ufsLote.length > 0 
-        ? await silver_db.select({ sigla: estados.sigla }).from(estados).where(inArray(estados.sigla, ufsLote))
-        : [];
-      const ufsValidas = new Set(estadosDb.map(e => e.sigla));
-
-      const munToUpsertMap = new Map<string, typeof municipios.$inferInsert>();
-      
-      bronzeData.forEach(b => {
-        if (b.municipioEmitente && b.ufEmitente && ufsValidas.has(b.ufEmitente.substring(0, 2).toUpperCase())) {
-          const key = `${b.municipioEmitente.toUpperCase()}-${b.ufEmitente.substring(0, 2).toUpperCase()}`;
-          munToUpsertMap.set(key, { nome: b.municipioEmitente, ufSigla: b.ufEmitente.substring(0, 2).toUpperCase() });
-        }
-      });
-      
-      const munToInsertList = Array.from(munToUpsertMap.values());
-      if (munToInsertList.length > 0) {
-        await silver_db.insert(municipios).values(munToInsertList).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-      }
-
-      const municipiosDb = munToInsertList.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla }).from(municipios).where(inArray(municipios.nome, munToInsertList.map(m => m.nome)))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
       // 2. Pessoas Jurídicas (Emitente e Destinatário PJ)
       const pjMap = new Map<string, typeof pessoasJuridicas.$inferInsert>();
-      
+
       bronzeData.forEach(b => {
         // Emitente (geralmente PJ)
         const tipoEmi = getDocumentType(b.cpfCnpjEmitente);
         if (tipoEmi === 'PJ') {
           const cnpjEmi = formatCnpj(b.cpfCnpjEmitente);
           if (cnpjEmi) {
-            const munKeyEmi = (b.municipioEmitente && b.ufEmitente) ? `${b.municipioEmitente.toUpperCase()}-${b.ufEmitente.substring(0, 2).toUpperCase()}` : null;
-            pjMap.set(cnpjEmi, { 
-              cnpj: cnpjEmi, 
+            const municipioId = MunicipioResolver.resolve({
+              nome: b.municipioEmitente,
+              uf: b.ufEmitente,
+            });
+            pjMap.set(cnpjEmi, {
+              cnpj: cnpjEmi,
               razaoSocial: b.razaoSocialEmitente || 'NÃO INFORMADO',
-              municipioId: munKeyEmi ? munIdMap.get(munKeyEmi) || null : null
+              municipioId: municipioId || null
             });
           }
         }
@@ -111,14 +85,14 @@ export async function processNotaFiscal() {
       });
 
       if (pjMap.size > 0) {
-        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({set: {razaoSocial: sql`VALUES(razao_social)`}});
+        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
       }
       const pjDb = pjMap.size > 0 ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj }).from(pessoasJuridicas).where(inArray(pessoasJuridicas.cnpj, Array.from(pjMap.keys()))) : [];
       const pjIdMap = new Map(pjDb.map(p => [p.cnpj, p.id]));
 
       // 3. Pessoas Físicas (Destinatário PF)
       const pfMap = new Map<string, typeof pessoasFisicas.$inferInsert>();
-      
+
       bronzeData.forEach(b => {
         const tipoDest = getDocumentType(b.cnpjDestinatario);
         if (tipoDest === 'PF') {
@@ -133,10 +107,10 @@ export async function processNotaFiscal() {
       });
 
       if (pfMap.size > 0) {
-         const exists = await silver_db.select({cpf: pessoasFisicas.cpf}).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
-         const eSet = new Set(exists.map(e => e.cpf));
-         const toInsert = Array.from(pfMap.values()).filter(p => !eSet.has(p.cpf));
-         if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
+        const exists = await silver_db.select({ cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
+        const eSet = new Set(exists.map(e => e.cpf));
+        const toInsert = Array.from(pfMap.values()).filter(p => !eSet.has(p.cpf));
+        if (toInsert.length > 0) await silver_db.insert(pessoasFisicas).values(toInsert);
       }
       const pfDb = pfMap.size > 0 ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys()))) : [];
       const pfIdMap = new Map(pfDb.map(p => [p.cpf, p.id]));
@@ -182,11 +156,11 @@ export async function processNotaFiscal() {
 
         // Inserção com IGNORE/OnDuplicate seguro (chaves únicas não devem ser duplicadas)
         log.info({ data: { count: uniqueNfs.length } }, 'Inserindo notas_fiscais');
-        
+
         const existingNfs = await silver_db.select({ chaveAcesso: notasFiscais.chaveAcesso })
           .from(notasFiscais)
           .where(inArray(notasFiscais.chaveAcesso, uniqueNfs.map(n => n.chaveAcesso)));
-        
+
         const existingSet = new Set(existingNfs.map(n => n.chaveAcesso));
         const toInsertFinal = uniqueNfs.filter(n => !existingSet.has(n.chaveAcesso));
 
@@ -226,16 +200,16 @@ export async function processNotaFiscalItem() {
       }
 
       const chavesLote = [...new Set(bronzeData.map(b => b.chaveAcesso).filter(c => c && c.length === 44) as string[])];
-      const nfsDb = chavesLote.length > 0 
+      const nfsDb = chavesLote.length > 0
         ? await silver_db.select({ id: notasFiscais.id, chaveAcesso: notasFiscais.chaveAcesso })
-            .from(notasFiscais)
-            .where(inArray(notasFiscais.chaveAcesso, chavesLote))
+          .from(notasFiscais)
+          .where(inArray(notasFiscais.chaveAcesso, chavesLote))
         : [];
       const nfIdMap = new Map(nfsDb.map(n => [n.chaveAcesso, n.id]));
 
       const itensToInsert = bronzeData.map(b => {
         if (!b.chaveAcesso || b.chaveAcesso.length !== 44) return null;
-        
+
         const notaFiscalId = nfIdMap.get(b.chaveAcesso);
         if (!notaFiscalId || !b.numeroProduto || !b.descricaoProdutoServico) return null;
 
@@ -292,16 +266,16 @@ export async function processNotaFiscalEvento() {
       }
 
       const chavesLote = [...new Set(bronzeData.map(b => b.chaveAcesso).filter(c => c && c.length === 44) as string[])];
-      const nfsDb = chavesLote.length > 0 
+      const nfsDb = chavesLote.length > 0
         ? await silver_db.select({ id: notasFiscais.id, chaveAcesso: notasFiscais.chaveAcesso })
-            .from(notasFiscais)
-            .where(inArray(notasFiscais.chaveAcesso, chavesLote))
+          .from(notasFiscais)
+          .where(inArray(notasFiscais.chaveAcesso, chavesLote))
         : [];
       const nfIdMap = new Map(nfsDb.map(n => [n.chaveAcesso, n.id]));
 
       const eventosToInsert = bronzeData.map(b => {
         if (!b.chaveAcesso || b.chaveAcesso.length !== 44) return null;
-        
+
         const notaFiscalId = nfIdMap.get(b.chaveAcesso);
         // dataHoraEvento necessita de formatação adequada caso venha do SIASG
         let dhFormatada = b.dataHoraEvento ? parseDate(b.dataHoraEvento.split(' ')[0]) : null;
