@@ -10,9 +10,14 @@ import { eq } from "drizzle-orm";
 import { addMonths, addDays, addHours, isAfter } from "date-fns";
 import { bronze_db } from "../../database/bronze_connection.js";
 import { FileDownloadHistory } from "../../database/bronze_schema.js";
-import { scrapeSiafiMunicipios } from "./processors/siafi-scrapper.js";
 const logger = new_logger(import.meta.url);
-const BASE_URL = "https://portaldatransparencia.gov.br/download-de-dados";
+const PORTAL_ORIGIN = "https://portaldatransparencia.gov.br";
+const BASE_URL = `${PORTAL_ORIGIN}/download-de-dados`;
+// Fallback caso o link do "Histórico de Dados" não seja encontrado na página principal
+const HISTORICO_FALLBACK_PATH = "/download-de-dados/historico/paginas-de-transparencia";
+const HISTORICO_MODULE_NAME = "Histórico de Dados (antes de 2013)";
+const HISTORICO_FOLDER_PREFIX = "historico-";
+const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 interface FileMetadata {
     name: string;
@@ -32,7 +37,7 @@ async function fetchPortalData(): Promise<ModuleData[]> {
 
     const { data } = await axios.get(BASE_URL, {
         headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": DEFAULT_USER_AGENT
         }
     });
     const $ = cheerio.load(data);
@@ -67,8 +72,96 @@ async function fetchPortalData(): Promise<ModuleData[]> {
         }
     });
 
+    if (modules.length === 0) {
+        log.warn("Nenhum módulo encontrado na página principal (possível bloqueio do WAF ou mudança de layout).");
+    }
+
     log.info(`Extração concluída. ${modules.length} módulos encontrados.`);
     return modules;
+}
+
+/**
+ * Normaliza um href (absoluto ou relativo) para um path relativo à origem do portal.
+ */
+function toPortalPath(href: string): string {
+    if (href.startsWith("http")) {
+        return new URL(href).pathname;
+    }
+    return href.startsWith("/") ? href : `/${href}`;
+}
+
+/**
+ * Step adicional: descobre, na página principal, o link de "Histórico de Dados (antes de 2013)"
+ * e lista os arquivos históricos (execução orçamentária, licitações, contratos, diárias e passagens).
+ * Cada arquivo histórico é um arquivo único (#arquivo-unico), sem filtros de ano/mês.
+ */
+async function fetchHistoricalData(): Promise<ModuleData[]> {
+    const log = logger.forMethod("fetchHistoricalData");
+    log.info("Iniciando extração dos dados históricos (Etapa 1.1)");
+
+    const headers = { "User-Agent": DEFAULT_USER_AGENT };
+
+    // 1. Descobre o link do histórico na página principal
+    let historicoPath = HISTORICO_FALLBACK_PATH;
+    try {
+        const { data: mainPage } = await axios.get(BASE_URL, { headers });
+        const $main = cheerio.load(mainPage);
+        const historicoHref = $main("a")
+            .filter((_, el) => {
+                const href = $main(el).attr("href") || "";
+                const text = $main(el).text().toLowerCase();
+                return href.includes("/download-de-dados/historico/") || text.includes("histórico de dados");
+            })
+            .first()
+            .attr("href");
+
+        if (historicoHref) {
+            historicoPath = toPortalPath(historicoHref);
+        } else {
+            log.warn(`Link do histórico não encontrado na página principal. Usando fallback: ${HISTORICO_FALLBACK_PATH}`);
+        }
+    } catch (error) {
+        log.warn({ data: error }, `Falha ao ler a página principal para localizar o histórico. Usando fallback: ${HISTORICO_FALLBACK_PATH}`);
+    }
+
+    // 2. Lista os arquivos históricos disponíveis
+    const historicoUrl = `${PORTAL_ORIGIN}${historicoPath}`;
+    log.info(`Buscando arquivos históricos em: ${historicoUrl}`);
+    const { data } = await axios.get(historicoUrl, { headers });
+    const $ = cheerio.load(data);
+
+    const files: FileMetadata[] = [];
+    const seen = new Set<string>();
+
+    $(".tabela-receptor tbody tr td a").each((_, el) => {
+        const name = $(el).text().trim();
+        const href = $(el).attr("href") || "";
+        if (!href) return;
+
+        const hrefPath = toPortalPath(href);
+        if (seen.has(hrefPath)) return;
+        seen.add(hrefPath);
+
+        const slug = hrefPath.split("/").filter(Boolean).pop() || "";
+        if (!slug) return;
+
+        files.push({
+            name,
+            href: hrefPath,
+            // Prefixo evita colisão de diretório/chave de histórico com os módulos regulares
+            folderName: `${HISTORICO_FOLDER_PREFIX}${slug}`,
+            // Dados anteriores a 2013 não são mais atualizados: baixa uma vez e reaproveita
+            frequency: "sob demanda"
+        });
+    });
+
+    if (files.length === 0) {
+        log.warn("Nenhum arquivo histórico encontrado na página de histórico.");
+        return [];
+    }
+
+    log.info(`Extração histórica concluída. ${files.length} arquivos encontrados.`);
+    return [{ moduleName: HISTORICO_MODULE_NAME, files }];
 }
 
 async function ensureDirectories(modules: ModuleData[]): Promise<void> {
@@ -195,6 +288,34 @@ async function processDownload(downloadUrl: string, destPath: string, uniqueFile
     return true;
 }
 
+/**
+ * Abre a página de detalhes de um arquivo e só retorna quando algum dos blocos de download
+ * (arquivo único, origens ou anos) estiver visível. Se o conteúdo não aparecer (ex.: página de
+ * desafio do AWS WAF na primeira requisição), recarrega a página com espera crescente.
+ */
+async function loadFilePage(page: Page, pageUrl: string, log: any, maxAttempts = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await page.goto(pageUrl, { waitUntil: "networkidle2" });
+
+        try {
+            await page.waitForFunction(() => {
+                return ['#arquivo-unico', '#origens', '#anos'].some(selector => {
+                    const el = document.querySelector(selector);
+                    return el && window.getComputedStyle(el).display !== 'none';
+                });
+            }, { timeout: 15000 });
+            return;
+        } catch {
+            log.warn(`Conteúdo de download não apareceu em ${pageUrl} (tentativa ${attempt}/${maxAttempts}).`);
+            if (attempt < maxAttempts) {
+                await new Promise(r => setTimeout(r, 3000 * attempt));
+            }
+        }
+    }
+
+    throw new Error(`Página sem opções de download após ${maxAttempts} tentativas: ${pageUrl}`);
+}
+
 async function fetchFilesForModule(modules: ModuleData[], options?: { oneFilePerModule?: boolean }): Promise<void> {
     const log = logger.forMethod("fetchFilesForModule");
     log.info("Iniciando extração de arquivos por exercício e mês (Etapa 2)");
@@ -229,7 +350,7 @@ async function fetchFilesForModule(modules: ModuleData[], options?: { oneFilePer
             log.info(`Acessando página do arquivo: ${pageUrl}`);
 
             try {
-                await page.goto(pageUrl, { waitUntil: "networkidle2" });
+                await loadFilePage(page, pageUrl, log);
 
                 const isSingleLinkVisible = await page.evaluate(() => {
                     const el = document.querySelector('#arquivo-unico');
@@ -382,8 +503,19 @@ export async function runScrapper(options?: { oneFilePerModule?: boolean }) {
         log.info("Iniciando orquestração do scrapper");
 
         const modules = await fetchPortalData();
-        await ensureDirectories(modules);
-        await fetchFilesForModule(modules, options);
+
+        // Step adicional: dados históricos (antes de 2013). Falha aqui não deve derrubar o fluxo regular.
+        let historicalModules: ModuleData[] = [];
+        try {
+            historicalModules = await fetchHistoricalData();
+        } catch (error) {
+            log.error({ data: error }, "Erro ao extrair dados históricos. Seguindo apenas com os módulos regulares.");
+        }
+
+        const allModules = [...modules, ...historicalModules];
+
+        await ensureDirectories(allModules);
+        await fetchFilesForModule(allModules, options);
 
         log.info("Orquestração do scrapper finalizada com sucesso");
         return;
