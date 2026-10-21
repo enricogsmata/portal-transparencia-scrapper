@@ -1,4 +1,4 @@
-import { sql, inArray, and } from 'drizzle-orm';
+import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { 
@@ -61,12 +61,14 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
       osToUpsertMap.set(b.codOrgsupLotacao, {
         codigo: b.codOrgsupLotacao,
         nome: b.orgsupLotacao || 'NÃO INFORMADO',
+        sistemaOrigem: 'SIAPE',
       });
     }
     if (b.codOrgsupExercicio) {
       osToUpsertMap.set(b.codOrgsupExercicio, {
         codigo: b.codOrgsupExercicio,
         nome: b.orgsupExercicio || 'NÃO INFORMADO',
+        sistemaOrigem: 'SIAPE',
       });
     }
   });
@@ -82,7 +84,7 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
   const osDb = codigosOs.length > 0
     ? await silver_db.select({ id: orgaosSuperiores.id, codigo: orgaosSuperiores.codigo })
         .from(orgaosSuperiores)
-        .where(inArray(orgaosSuperiores.codigo, codigosOs))
+        .where(and(eq(orgaosSuperiores.sistemaOrigem, 'SIAPE'), inArray(orgaosSuperiores.codigo, codigosOs)))
     : [];
   const osIdMap = new Map(osDb.map(o => [o.codigo, o.id]));
 
@@ -94,6 +96,7 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
         codigo: b.codOrgaoLotacao,
         nome: b.orgaoLotacao || 'NÃO INFORMADO',
         orgaoSuperiorId: osIdMap.get(b.codOrgsupLotacao)!,
+        sistemaOrigem: 'SIAPE',
       });
     }
     if (b.codOrgaoExercicio && b.codOrgsupExercicio && osIdMap.has(b.codOrgsupExercicio)) {
@@ -101,6 +104,7 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
         codigo: b.codOrgaoExercicio,
         nome: b.orgaoExercicio || 'NÃO INFORMADO',
         orgaoSuperiorId: osIdMap.get(b.codOrgsupExercicio)!,
+        sistemaOrigem: 'SIAPE',
       });
     }
   });
@@ -121,7 +125,7 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
   const osubDb = codigosOsub.length > 0
     ? await silver_db.select({ id: orgaosSubordinados.id, codigo: orgaosSubordinados.codigo })
         .from(orgaosSubordinados)
-        .where(inArray(orgaosSubordinados.codigo, codigosOsub))
+        .where(and(eq(orgaosSubordinados.sistemaOrigem, 'SIAPE'), inArray(orgaosSubordinados.codigo, codigosOsub)))
     : [];
   const osubIdMap = new Map(osubDb.map(o => [o.codigo, o.id]));
 
