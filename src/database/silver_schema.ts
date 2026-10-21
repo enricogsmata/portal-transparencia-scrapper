@@ -374,7 +374,7 @@ export const modalidadesAplicacao = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     codigo: varchar('codigo', { length: 10 }).notNull().unique(),
-    nome: varchar('nome', { length: 100 }).notNull(),
+    nome: varchar('nome', { length: 255 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   }
@@ -2040,13 +2040,13 @@ export const execucaoDespesas = mysqlTable(
     unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }).references(() => unidadesGestoras.id),
     acaoOrcamentariaId: bigint('acao_orcamentaria_id', { mode: 'number' }).references(() => acoesOrcamentarias.id),
     municipioId: bigint('municipio_id', { mode: 'number' }).references(() => municipios.id),
-    
+
     // Dimensões Orçamentárias
     categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }).references(() => categoriasDespesa.id),
     grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }).references(() => gruposDespesa.id),
     modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }),
     elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }).references(() => elementosDespesa.id),
-    
+
     // Atributos textuais residuais da dimensão da Emenda (caso não haja tabela específica)
     codigoAutorEmenda: varchar('codigo_autor_emenda', { length: 50 }),
     chaveNatural: chaveNaturalHash(
@@ -2069,7 +2069,7 @@ export const execucaoDespesas = mysqlTable(
     valorRestosAPagarInscritos: decimal('valor_restos_a_pagar_inscritos', { precision: 18, scale: 2 }),
     valorRestosAPagarCancelado: decimal('valor_restos_a_pagar_cancelado', { precision: 18, scale: 2 }),
     valorRestosAPagarPagos: decimal('valor_restos_a_pagar_pagos', { precision: 18, scale: 2 }),
-    
+
     exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),

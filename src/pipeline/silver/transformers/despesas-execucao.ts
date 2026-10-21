@@ -132,7 +132,12 @@ export async function processExecucaoDespesa() {
             // 6. Dimensão Modalidades
             const modToUpsertMap = new Map<string, typeof modalidadesAplicacao.$inferInsert>();
             bronzeData.forEach(b => {
-                if (b.codigoModalidadeDespesa) modToUpsertMap.set(b.codigoModalidadeDespesa, { codigo: b.codigoModalidadeDespesa, nome: b.modalidadeDespesa || 'NÃO INFORMADO' });
+                if (b.codigoModalidadeDespesa) {
+                    modToUpsertMap.set(b.codigoModalidadeDespesa, {
+                        codigo: b.codigoModalidadeDespesa,
+                        nome: b.modalidadeDespesa ? b.modalidadeDespesa.slice(0, 255) : 'NÃO INFORMADO',
+                    });
+                }
             });
             const modToUpsert = Array.from(modToUpsertMap.values());
             if (modToUpsert.length > 0) await silver_db.insert(modalidadesAplicacao).values(modToUpsert).onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });

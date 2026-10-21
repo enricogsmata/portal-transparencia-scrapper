@@ -71,7 +71,7 @@ export async function runSilverOrchestrator() {
 
     // FASE 2: Estrutura Institucional, Gestão e Orçamento
     //{ name: 'orcamento-despesa', execute: processOrcamentoDespesa },
-    { name: 'receitas', execute: processReceitas },
+    //{ name: 'receitas', execute: processReceitas },
     { name: 'despesas-execucao', execute: processExecucaoDespesa },
 
     // FASE 3: Ciclo Central da Despesa Federal (SIAFI)
