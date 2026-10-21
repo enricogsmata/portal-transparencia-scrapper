@@ -15,11 +15,58 @@ export function formatCnpj(cnpj?: string | null): string | null {
  */
 export function parseDate(dateStr?: string | null): string | null {
   if (!dateStr) return null;
-  const parts = dateStr.split('/');
-  if (parts.length === 3) {
-    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
+  const invertedMatch = trimmed.match(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/);
+  if (invertedMatch) {
+    const [, m, c, y, d] = invertedMatch;
+    if (c === '19' || c === '20') {
+      return `${c}${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
   }
-  return dateStr;
+
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split('/');
+    if (parts.length === 3) {
+      if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      }
+    } else if (parts.length === 2 && parts[1].length === 4) {
+      return `${parts[1]}-${parts[0].padStart(2, '0')}-01`;
+    }
+  }
+
+  if (trimmed.includes('-')) {
+    const parts = trimmed.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        const day = parseInt(parts[2], 10);
+        if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+          return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        }
+      } else if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 8) {
+    if (digits.startsWith('19') || digits.startsWith('20')) {
+      return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+    }
+    if (digits.slice(4).startsWith('19') || digits.slice(4).startsWith('20')) {
+      return `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -54,11 +101,32 @@ export function getDocumentType(doc?: string | null): 'PF' | 'PJ' | null {
 
 export function formatAnoMes(anoMes?: string | null): string | null {
   if (!anoMes) return null;
-  const cleaned = anoMes.replace(/\D/g, '');
-  if (cleaned.length === 6) {
-    return `${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}`;
+  const trimmed = anoMes.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.includes('/') || trimmed.includes('-')) {
+    const parts = trimmed.split(/[\/\-]/);
+    if (parts.length === 2) {
+      if (parts[1].length === 4) {
+        return `${parts[1]}-${parts[0].padStart(2, '0')}`;
+      }
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}`;
+      }
+    }
   }
-  return cleaned.substring(0, 7);
+
+  const cleaned = trimmed.replace(/\D/g, '');
+  if (cleaned.length === 6) {
+    if (cleaned.startsWith('19') || cleaned.startsWith('20')) {
+      return `${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}`;
+    }
+    if (cleaned.substring(2).startsWith('19') || cleaned.substring(2).startsWith('20')) {
+      return `${cleaned.substring(2, 6)}-${cleaned.substring(0, 2)}`;
+    }
+  }
+
+  return cleaned.length >= 6 ? `${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}` : null;
 }
 
 export function formatCpfByNis(nis?: string | null): string {

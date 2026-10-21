@@ -179,10 +179,34 @@ export async function processExecucaoDespesa() {
             }).filter(Boolean) as typeof execucaoDespesas.$inferInsert[];
 
             if (execucoesToInsert.length > 0) {
-                // Garantir UPSERT seguro com idempotência temporal por lote
-                // Como a granularidade inclui muitas dimensões opcionais, deletamos baseado nas FKs principais disponíveis no lote
-                const anoMesLote = [...new Set(execucoesToInsert.map(e => e.anoMesLancamento))];
-                const ugIdsLote = [...new Set(execucoesToInsert.map(e => e.unidadeGestoraId).filter(Boolean) as number[])];
+                const batchMap = new Map<string, typeof execucoesToInsert[0]>();
+                for (const e of execucoesToInsert) {
+                    const key = `${e.anoMesLancamento}|${e.unidadeGestoraId ?? 0}|${e.acaoOrcamentariaId ?? 0}|${e.municipioId ?? 0}|${e.categoriaDespesaId ?? 0}|${e.grupoDespesaId ?? 0}|${e.modalidadeAplicacaoId ?? 0}|${e.elementoDespesaId ?? 0}|${e.codigoAutorEmenda ?? ''}`;
+                    const existing = batchMap.get(key);
+                    if (existing) {
+                        existing.valorEmpenhado = (Number(existing.valorEmpenhado) + Number(e.valorEmpenhado)).toFixed(2);
+                        existing.valorLiquidado = (Number(existing.valorLiquidado) + Number(e.valorLiquidado)).toFixed(2);
+                        existing.valorPago = (Number(existing.valorPago) + Number(e.valorPago)).toFixed(2);
+                        if (e.valorRestosAPagarInscritos !== null) {
+                            existing.valorRestosAPagarInscritos = ((Number(existing.valorRestosAPagarInscritos) || 0) + Number(e.valorRestosAPagarInscritos)).toFixed(2);
+                        }
+                        if (e.valorRestosAPagarCancelado !== null) {
+                            existing.valorRestosAPagarCancelado = ((Number(existing.valorRestosAPagarCancelado) || 0) + Number(e.valorRestosAPagarCancelado)).toFixed(2);
+                        }
+                        if (e.valorRestosAPagarPagos !== null) {
+                            existing.valorRestosAPagarPagos = ((Number(existing.valorRestosAPagarPagos) || 0) + Number(e.valorRestosAPagarPagos)).toFixed(2);
+                        }
+                        if (!existing.nomeAutorEmenda && e.nomeAutorEmenda) {
+                            existing.nomeAutorEmenda = e.nomeAutorEmenda;
+                        }
+                    } else {
+                        batchMap.set(key, { ...e });
+                    }
+                }
+                const uniqueExecucoes = Array.from(batchMap.values());
+
+                const anoMesLote = [...new Set(uniqueExecucoes.map(e => e.anoMesLancamento))];
+                const ugIdsLote = [...new Set(uniqueExecucoes.map(e => e.unidadeGestoraId).filter(Boolean) as number[])];
 
                 if (anoMesLote.length > 0 && ugIdsLote.length > 0) {
                     await silver_db.delete(execucaoDespesas)
@@ -194,16 +218,48 @@ export async function processExecucaoDespesa() {
                         );
                 }
 
-                log.info({ data: { count: execucoesToInsert.length } }, 'Inserindo execucao_despesas');
-                for (let i = 0; i < execucoesToInsert.length; i += 1000) {
-                    await silver_db.insert(execucaoDespesas).values(execucoesToInsert.slice(i, i + 1000));
+                log.info({ data: { count: uniqueExecucoes.length } }, 'Inserindo execucao_despesas');
+                for (let i = 0; i < uniqueExecucoes.length; i += 1000) {
+                    await silver_db.insert(execucaoDespesas)
+                        .values(uniqueExecucoes.slice(i, i + 1000))
+                        .onDuplicateKeyUpdate({
+                            set: {
+                                valorEmpenhado: sql`VALUES(valor_empenhado)`,
+                                valorLiquidado: sql`VALUES(valor_liquidado)`,
+                                valorPago: sql`VALUES(valor_pago)`,
+                                valorRestosAPagarInscritos: sql`VALUES(valor_restos_a_pagar_inscritos)`,
+                                valorRestosAPagarCancelado: sql`VALUES(valor_restos_a_pagar_cancelado)`,
+                                valorRestosAPagarPagos: sql`VALUES(valor_restos_a_pagar_pagos)`,
+                                nomeAutorEmenda: sql`COALESCE(VALUES(nome_autor_emenda), execucao_despesas.nome_autor_emenda)`,
+                                exercicioReferencia: sql`VALUES(exercicio_referencia)`,
+                            },
+                        });
                 }
             }
 
             offset += BATCH_SIZE;
         }
-    } catch (error) {
-        log.error({ data: error }, 'Erro fatal durante o processamento de Execucao de Despesa');
+    } catch (error: any) {
+        const errorCode = error.code || 'UNKNOWN_CODE';
+        const errorMessage = error.sqlMessage || error.message || 'Erro desconhecido';
+
+        const shortSql = error.sql ? `${error.sql.substring(0, 150)}... [TRUNCATED]` : undefined;
+
+        log.error({
+            data: {
+                code: errorCode,
+                message: errorMessage,
+                sqlSnippet: shortSql
+            }
+        }, 'Erro fatal durante o processamento de Execucao de Despesa');
+
+        if (error.sql) {
+            error.sql = shortSql;
+        }
+        if (error.cause && error.cause.sql) {
+            error.cause.sql = shortSql;
+        }
+
         throw error;
     }
 }

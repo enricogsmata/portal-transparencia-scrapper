@@ -72,24 +72,24 @@ export async function runSilverOrchestrator() {
     // FASE 2: Estrutura Institucional, Gestão e Orçamento
     //{ name: 'orcamento-despesa', execute: processOrcamentoDespesa },
     //{ name: 'receitas', execute: processReceitas },
-    { name: 'despesas-execucao', execute: processExecucaoDespesa },
+    //{ name: 'despesas-execucao', execute: processExecucaoDespesa },
 
     // FASE 3: Ciclo Central da Despesa Federal (SIAFI)
-    { name: 'despesas-empenho', execute: processDespesasEmpenho },
-    { name: 'despesas-item-empenho', execute: processDespesasItemEmpenho },
-    { name: 'despesas-item-empenho-historico', execute: processDespesasItemEmpenhoHistorico },
-    { name: 'despesas-liquidacao', execute: processDespesasLiquidacao },
-    { name: 'despesas-liquidacao-empenhos-impactados', execute: processDespesasLiquidacaoEmpenhosImpactados },
-    { name: 'despesas-pagamento', execute: processDespesasPagamento },
-    { name: 'despesas-pagamento-empenhos-impactados', execute: processDespesasPagamentoEmpenhosImpactados },
-    { name: 'despesas-pagamento-favorecidos-finais', execute: processDespesasPagamentoFavorecidosFinais },
-    { name: 'despesas-pagamento-lista-bancos', execute: processDespesasPagamentoListaBancos },
-    { name: 'despesas-pagamento-lista-faturas', execute: processDespesasPagamentoListaFaturas },
-    { name: 'despesas-pagamento-lista-precatorios', execute: processDespesasPagamentoListaPrecatorios },
-    { name: 'recebimento-recursos-favorecido', execute: processRecebimentoRecursosFavorecido },
+    //{ name: 'despesas-empenho', execute: processDespesasEmpenho },
+    //{ name: 'despesas-item-empenho', execute: processDespesasItemEmpenho },
+    //{ name: 'despesas-item-empenho-historico', execute: processDespesasItemEmpenhoHistorico },
+    //{ name: 'despesas-liquidacao', execute: processDespesasLiquidacao },
+    //{ name: 'despesas-liquidacao-empenhos-impactados', execute: processDespesasLiquidacaoEmpenhosImpactados },
+    //{ name: 'despesas-pagamento', execute: processDespesasPagamento },
+    //{ name: 'despesas-pagamento-empenhos-impactados', execute: processDespesasPagamentoEmpenhosImpactados },
+    //{ name: 'despesas-pagamento-favorecidos-finais', execute: processDespesasPagamentoFavorecidosFinais },
+    //{ name: 'despesas-pagamento-lista-bancos', execute: processDespesasPagamentoListaBancos },
+    //{ name: 'despesas-pagamento-lista-faturas', execute: processDespesasPagamentoListaFaturas },
+    //{ name: 'despesas-pagamento-lista-precatorios', execute: processDespesasPagamentoListaPrecatorios },
+    //{ name: 'recebimento-recursos-favorecido', execute: processRecebimentoRecursosFavorecido },
 
     // FASE 4: Convênios e Transferências da União
-    { name: 'convenios', execute: processConvenios },
+    //{ name: 'convenios', execute: processConvenios },
     { name: 'convenios-ordens-bancarias', execute: processConveniosOrdensBancarias },
     { name: 'recursos-transferidos', execute: processRecursosTransferidos },
 
