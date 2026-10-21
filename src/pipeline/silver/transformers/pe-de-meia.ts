@@ -1,13 +1,11 @@
-import { sql, inArray, and, eq } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { PeDeMeia } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
   pessoasFisicas,
-  programasSociais,
-  municipios,
-  estados
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { formatCpf, formatAnoMes, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -24,20 +22,14 @@ export async function processPeDeMeia() {
   log.info('Iniciando processamento do módulo Pé-de-Meia');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'PE_DE_MEIA',
-        nome: 'Pé-de-Meia',
-        descricao: 'Incentivo financeiro-educacional para estudantes do Ensino Médio',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'PE_DE_MEIA'));
+
+    if (!programaDb) {
+      throw new Error('Programa social PE_DE_MEIA não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 

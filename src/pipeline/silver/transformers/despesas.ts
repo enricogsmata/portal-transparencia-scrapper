@@ -92,7 +92,7 @@ export async function processDespesasEmpenho() {
             });
             const ugToUpsert = Array.from(ugToUpsertMap.values());
             if (ugToUpsert.length > 0) {
-                await silver_db.insert(unidadesGestoras).values(ugToUpsert).onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+                await silver_db.insert(unidadesGestoras).values(ugToUpsert).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             }
             const ugDb = ugToUpsert.length > 0 ? await silver_db.select({ id: unidadesGestoras.id, codigo: unidadesGestoras.codigo }).from(unidadesGestoras).where(inArray(unidadesGestoras.codigo, ugToUpsert.map(u => u.codigo))) : [];
             const ugIdMap = new Map(ugDb.map(u => [u.codigo, u.id]));
@@ -135,7 +135,7 @@ export async function processDespesasEmpenho() {
 
             const pjToUpsert = Array.from(pjMap.values());
             if (pjToUpsert.length > 0) {
-                await silver_db.insert(pessoasJuridicas).values(pjToUpsert).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+                await silver_db.insert(pessoasJuridicas).values(pjToUpsert).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             }
             const pjDb = pjToUpsert.length > 0 ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj }).from(pessoasJuridicas).where(inArray(pessoasJuridicas.cnpj, pjToUpsert.map(p => p.cnpj))) : [];
             const pjIdMap = new Map(pjDb.map(p => [p.cnpj, p.id]));
@@ -328,7 +328,7 @@ export async function processDespesasLiquidacao() {
             // Reutiliza logica simplificada para resolver UGs e Gestoes que devem ter vindo do Empenho ou extraídas agora
             const ugToUpsertMap = new Map();
             bronzeData.forEach(b => { if (b.codigoUnidadeGestora) ugToUpsertMap.set(b.codigoUnidadeGestora, { codigo: b.codigoUnidadeGestora, nome: b.unidadeGestora || 'NÃO INFORMADO' }); });
-            if (ugToUpsertMap.size > 0) await silver_db.insert(unidadesGestoras).values(Array.from(ugToUpsertMap.values())).onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+            if (ugToUpsertMap.size > 0) await silver_db.insert(unidadesGestoras).values(Array.from(ugToUpsertMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             const ugDb = ugToUpsertMap.size > 0 ? await silver_db.select({ id: unidadesGestoras.id, c: unidadesGestoras.codigo }).from(unidadesGestoras).where(inArray(unidadesGestoras.codigo, Array.from(ugToUpsertMap.keys()))) : [];
             const ugIdMap = new Map(ugDb.map(u => [u.c, u.id]));
 
@@ -344,7 +344,7 @@ export async function processDespesasLiquidacao() {
                 if (type === 'PF') pfMap.set(formatCpf(b.codigoFavorecido)!, { cpf: formatCpf(b.codigoFavorecido)!, nome: b.favorecido || 'NÃO INFORMADO' });
                 else if (type === 'PJ') pjMap.set(formatCnpj(b.codigoFavorecido)!, { cnpj: formatCnpj(b.codigoFavorecido)!, razaoSocial: b.favorecido || 'NÃO INFORMADO' });
             });
-            if (pjMap.size > 0) await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+            if (pjMap.size > 0) await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             if (pfMap.size > 0) {
                 const exists = await silver_db.select({ cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
                 const eSet = new Set(exists.map(e => e.cpf));
@@ -419,7 +419,7 @@ export async function processDespesasPagamento() {
 
             const ugToUpsertMap = new Map();
             bronzeData.forEach(b => { if (b.codigoUnidadeGestora) ugToUpsertMap.set(b.codigoUnidadeGestora, { codigo: b.codigoUnidadeGestora, nome: b.unidadeGestora || 'NÃO INFORMADO' }); });
-            if (ugToUpsertMap.size > 0) await silver_db.insert(unidadesGestoras).values(Array.from(ugToUpsertMap.values())).onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+            if (ugToUpsertMap.size > 0) await silver_db.insert(unidadesGestoras).values(Array.from(ugToUpsertMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             const ugDb = ugToUpsertMap.size > 0 ? await silver_db.select({ id: unidadesGestoras.id, c: unidadesGestoras.codigo }).from(unidadesGestoras).where(inArray(unidadesGestoras.codigo, Array.from(ugToUpsertMap.keys()))) : [];
             const ugIdMap = new Map(ugDb.map(u => [u.c, u.id]));
 
@@ -435,7 +435,7 @@ export async function processDespesasPagamento() {
                 if (type === 'PF') pfMap.set(formatCpf(b.codigoFavorecido)!, { cpf: formatCpf(b.codigoFavorecido)!, nome: b.favorecido || 'NÃO INFORMADO' });
                 else if (type === 'PJ') pjMap.set(formatCnpj(b.codigoFavorecido)!, { cnpj: formatCnpj(b.codigoFavorecido)!, razaoSocial: b.favorecido || 'NÃO INFORMADO' });
             });
-            if (pjMap.size > 0) await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+            if (pjMap.size > 0) await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             if (pfMap.size > 0) {
                 const exists = await silver_db.select({ cpf: pessoasFisicas.cpf }).from(pessoasFisicas).where(inArray(pessoasFisicas.cpf, Array.from(pfMap.keys())));
                 const eSet = new Set(exists.map(e => e.cpf));
@@ -846,7 +846,7 @@ export async function processDespesasPagamentoFavorecidosFinais() {
             });
 
             if (pjMap.size > 0) {
-                await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+                await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
             }
 
             if (pfMap.size > 0) {

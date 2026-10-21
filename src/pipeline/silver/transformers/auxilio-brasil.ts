@@ -1,11 +1,11 @@
-import { sql, inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and, sql } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { AuxilioBrasil } from '../../../database/bronze_schema.js';
-import { 
-  beneficioPagamentos, 
-  pessoasFisicas, 
-  programasSociais 
+import {
+  beneficioPagamentos,
+  pessoasFisicas,
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -27,21 +27,15 @@ export async function processAuxilioBrasil() {
   log.info('Iniciando processamento do módulo Auxílio Brasil');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'AUXILIO_BRASIL',
-        nome: 'Auxílio Brasil',
-        descricao: 'Programa social de transferência de renda Auxílio Brasil',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'AUXILIO_BRASIL'));
-    
+
+    if (!programaDb) {
+      throw new Error('Programa social AUXILIO_BRASIL não cadastrado na dimensão programas_sociais.');
+    }
+
     const programaId = programaDb.id;
 
     while (hasMore) {
@@ -65,10 +59,10 @@ export async function processAuxilioBrasil() {
       const cpfsLote = [...new Set(bronzeData.map(b => formatCpf(b.cpfFavorecido)).filter(Boolean) as string[])];
       const cpfsExistentesDb = cpfsLote.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsLote))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsLote))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -100,7 +94,7 @@ export async function processAuxilioBrasil() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -115,7 +109,7 @@ export async function processAuxilioBrasil() {
             uf: b.uf,
           });
           const valor = parseDecimal(b.valorParcela);
-          
+
           if (!beneficiarioId || !municipioId || !b.mesCompetencia || valor === null) return null;
 
           return {

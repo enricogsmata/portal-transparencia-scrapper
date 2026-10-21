@@ -9,8 +9,7 @@ import {
 import {
   pessoasJuridicas,
   cnaes,
-  naturezasJuridicas,
-  municipios
+  naturezasJuridicas
 } from '../../../database/silver_schema.js';
 import { formatCep, formatCnpj } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -191,7 +190,7 @@ export async function processFavorecidosPjCnpj() {
         .values(uniqueItems)
         .onDuplicateKeyUpdate({
           set: {
-            razaoSocial: sql`VALUES(razao_social)`,
+            razaoSocial: sql`COALESCE(NULLIF(VALUES(razao_social), 'NÃO INFORMADO'), pessoas_juridicas.razao_social)`,
             nomeFantasia: sql`COALESCE(VALUES(nome_fantasia), pessoas_juridicas.nome_fantasia)`,
             cnaeId: sql`COALESCE(VALUES(cnae_id), pessoas_juridicas.cnae_id)`,
             naturezaJuridicaId: sql`COALESCE(VALUES(natureza_juridica_id), pessoas_juridicas.natureza_juridica_id)`,

@@ -58,7 +58,7 @@ export async function processCartaoPagamentoCpcc() {
       if (ugsToUpsert.length > 0) {
         await silver_db.insert(unidadesGestoras)
           .values(ugsToUpsert)
-          .onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const ugsDb = ugsToUpsert.length > 0
@@ -121,7 +121,7 @@ export async function processCartaoPagamentoCpcc() {
       if (pjsToUpsert.length > 0) {
         await silver_db.insert(pessoasJuridicas)
           .values(pjsToUpsert)
-          .onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const pjsDb = pjsToUpsert.length > 0

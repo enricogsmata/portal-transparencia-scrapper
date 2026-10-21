@@ -18,9 +18,7 @@ import {
   planosOrcamentarios,
   pessoasFisicas,
   pessoasJuridicas,
-  convenios,
-  municipios,
-  estados
+  convenios
 } from '../../../database/silver_schema.js';
 import { formatCnpj, getDocumentType, formatCpf, parseDecimal, parseDate, formatAnoMes } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -277,7 +275,7 @@ export async function processEmendasParlamentaresFavorecido() {
       });
 
       if (pjMap.size > 0) {
-        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       if (pfMap.size > 0) {

@@ -115,8 +115,7 @@ export async function processCnep() {
           .values(uniquePjs)
           .onDuplicateKeyUpdate({
             set: {
-              razaoSocial: sql`VALUES(razao_social)`,
-              nomeFantasia: sql`COALESCE(VALUES(nome_fantasia), pessoas_juridicas.nome_fantasia)`,
+              id: sql`id`,
             },
           });
       }

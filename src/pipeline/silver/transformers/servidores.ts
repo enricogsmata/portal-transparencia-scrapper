@@ -6,7 +6,6 @@ import {
   AposentadosCadastro,
   PensionistasCadastro,
   ServidoresAfastamentos,
-  ServidoresObservacoes,
   ServidoresHonorariosAdvocaticios,
   ServidoresJetons,
   ServidoresRemuneracao

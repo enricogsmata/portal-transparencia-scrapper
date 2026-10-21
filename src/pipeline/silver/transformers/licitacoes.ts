@@ -14,9 +14,7 @@ import {
   licitacaoParticipantes, 
   despesasEmpenhos,
   unidadesGestoras,
-  pessoasJuridicas,
-  municipios,
-  estados
+  pessoasJuridicas
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -59,7 +57,7 @@ export async function processLicitacao() {
       });
       const ugsToUpsert = Array.from(ugsToUpsertMap.values());
       if (ugsToUpsert.length > 0) {
-        await silver_db.insert(unidadesGestoras).values(ugsToUpsert).onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+        await silver_db.insert(unidadesGestoras).values(ugsToUpsert).onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
       const ugsDb = ugsToUpsert.length > 0
         ? await silver_db.select({ id: unidadesGestoras.id, codigo: unidadesGestoras.codigo }).from(unidadesGestoras).where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
@@ -244,7 +242,7 @@ export async function processLicitacaoParticipantes() {
       if (pjsToUpsert.length > 0) {
         await silver_db.insert(pessoasJuridicas)
           .values(pjsToUpsert)
-          .onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const pjsDb = pjsToUpsert.length > 0

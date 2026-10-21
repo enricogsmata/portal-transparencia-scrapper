@@ -44,13 +44,12 @@ export async function processAcordosLeniencia() {
       const uniqueEmpresas = Array.from(uniqueEmpresasMap.values());
 
       if (uniqueEmpresas.length > 0) {
-        log.info({ data: { count: uniqueEmpresas.length } }, 'Realizando upsert na dimensão pessoas_juridicas');
+        log.info({ data: { count: uniqueEmpresas.length } }, 'Realizando stubbing não-destrutivo na dimensão pessoas_juridicas');
         await silver_db.insert(pessoasJuridicas)
           .values(uniqueEmpresas)
           .onDuplicateKeyUpdate({
             set: {
-              razaoSocial: sql`VALUES(razao_social)`,
-              nomeFantasia: sql`COALESCE(VALUES(nome_fantasia), pessoas_juridicas.nome_fantasia)`,
+              id: sql`id`,
             },
           });
       }
@@ -58,8 +57,8 @@ export async function processAcordosLeniencia() {
       const cnpjs = uniqueEmpresas.map((e) => e.cnpj);
       const empresasDb = cnpjs.length > 0
         ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj })
-            .from(pessoasJuridicas)
-            .where(inArray(pessoasJuridicas.cnpj, cnpjs))
+          .from(pessoasJuridicas)
+          .where(inArray(pessoasJuridicas.cnpj, cnpjs))
         : [];
       const empresaIdMap = new Map(empresasDb.map((e) => [e.cnpj, e.id]));
 
@@ -133,7 +132,7 @@ export async function processAcordosLenienciaEfeitos() {
       log.info({ data: { offset, batchSize: efeitosBronze.length } }, 'Lote extraído da tabela acordos_leniencia_efeitos');
 
       const acordosIds = [...new Set(efeitosBronze.map((e) => e.idAcordo).filter(Boolean) as string[])];
-      
+
       if (acordosIds.length > 0) {
         const acordosDb = await silver_db.select({ id: acordosLeniencia.id, idAcordo: acordosLeniencia.idAcordo })
           .from(acordosLeniencia)
@@ -143,8 +142,14 @@ export async function processAcordosLenienciaEfeitos() {
         const efeitosToInsert = efeitosBronze
           .map((e) => {
             const acordoId = e.idAcordo ? acordoIdMap.get(e.idAcordo) : null;
-            if (!acordoId || !e.efeitoAcordo) return null;
-            
+            if (!acordoId) {
+              if (e.idAcordo) {
+                log.warn({ data: { idAcordo: e.idAcordo } }, 'Acordo de leniência pai não encontrado no Silver. Efeito descartado.');
+              }
+              return null;
+            }
+            if (!e.efeitoAcordo) return null;
+
             return {
               acordoId,
               efeitoAcordo: e.efeitoAcordo,
@@ -155,9 +160,9 @@ export async function processAcordosLenienciaEfeitos() {
 
         if (efeitosToInsert.length > 0) {
           const silverAcordosIds = Array.from(new Set(efeitosToInsert.map((e) => e.acordoId)));
-          
+
           log.info({ data: { count: efeitosToInsert.length, acordosAfetados: silverAcordosIds.length } }, 'Inserindo acordo_leniencia_efeitos');
-          
+
           await silver_db.delete(acordoLenienciaEfeitos)
             .where(inArray(acordoLenienciaEfeitos.acordoId, silverAcordosIds));
 

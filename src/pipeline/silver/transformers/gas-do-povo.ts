@@ -6,9 +6,7 @@ import {
   beneficioPagamentos,
   pessoasFisicas,
   pessoasJuridicas,
-  programasSociais,
-  municipios,
-  estados
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { formatCpf, formatCnpj, formatAnoMes, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -25,20 +23,14 @@ export async function processGasDoPovo() {
   log.info('Iniciando processamento do módulo Gás do Povo');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'GAS_DO_POVO',
-        nome: 'Auxílio Gás dos Brasileiros',
-        descricao: 'Auxílio Gás dos Brasileiros (Gás do Povo) e controle de vales',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'GAS_DO_POVO'));
+
+    if (!programaDb) {
+      throw new Error('Programa social GAS_DO_POVO não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 
@@ -116,7 +108,7 @@ export async function processGasDoPovo() {
       if (pjsToUpsert.length > 0) {
         await silver_db.insert(pessoasJuridicas)
           .values(pjsToUpsert)
-          .onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       // 6. Entidade de Pagamentos (Gás do Povo)

@@ -80,7 +80,7 @@ export async function processCartaoPagamentoDefesaCivil() {
       if (pjsToUpsert.length > 0) {
         await silver_db.insert(pessoasJuridicas)
           .values(pjsToUpsert)
-          .onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const pjsDb = pjsToUpsert.length > 0
@@ -111,11 +111,9 @@ export async function processCartaoPagamentoDefesaCivil() {
       const conveniosToUpsert = Array.from(conveniosToUpsertMap.values());
 
       if (conveniosToUpsert.length > 0) {
-        // Usa insert ignore (on conflict do nothing seria o ideal, mas MySQL onDuplicateKeyUpdate genérico)
-        // Atualiza apenas se precisar criar
         await silver_db.insert(convenios)
           .values(conveniosToUpsert)
-          .onDuplicateKeyUpdate({ set: { numeroConvenio: sql`numero_convenio` } }); // no-op update
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const conveniosDb = conveniosToUpsert.length > 0

@@ -11,9 +11,7 @@ import {
   notaFiscalEventos,
   notaFiscalItens,
   pessoasFisicas,
-  pessoasJuridicas,
-  municipios,
-  estados
+  pessoasJuridicas
 } from '../../../database/silver_schema.js';
 import {
   formatCnpj,
@@ -85,7 +83,7 @@ export async function processNotaFiscal() {
       });
 
       if (pjMap.size > 0) {
-        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+        await silver_db.insert(pessoasJuridicas).values(Array.from(pjMap.values())).onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
       const pjDb = pjMap.size > 0 ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj }).from(pessoasJuridicas).where(inArray(pessoasJuridicas.cnpj, Array.from(pjMap.keys()))) : [];
       const pjIdMap = new Map(pjDb.map(p => [p.cnpj, p.id]));

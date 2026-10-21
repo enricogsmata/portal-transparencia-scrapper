@@ -1,10 +1,9 @@
-import { sql, inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { AuxilioReconstrucao } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
-  municipios,
   pessoasFisicas,
   programasSociais
 } from '../../../database/silver_schema.js';
@@ -29,20 +28,14 @@ export async function processAuxilioReconstrucao() {
   log.info('Iniciando processamento do módulo Auxílio Reconstrução');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'AUXILIO_RECONSTRUCAO',
-        nome: 'Auxílio Reconstrução',
-        descricao: 'Auxílio de reconstrução financeira para vítimas de calamidades',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'AUXILIO_RECONSTRUCAO'));
+
+    if (!programaDb) {
+      throw new Error('Programa social AUXILIO_RECONSTRUCAO não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 
@@ -60,40 +53,6 @@ export async function processAuxilioReconstrucao() {
       }
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela auxilio_reconstrucao');
-
-      // 3. Dimensão Municípios
-      // Como não temos IBGE/SIAFI nesta base, buscamos pelo Nome + UF
-      const nomesLote = [...new Set(bronzeData.map(b => b.nomeMunicipio).filter(Boolean) as string[])];
-      const municipiosDb = nomesLote.length > 0
-        ? await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-          .from(municipios)
-          .where(inArray(municipios.nome, nomesLote))
-        : [];
-
-      const munIdMap = new Map(municipiosDb.map(m => [`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id]));
-
-      const municipiosToInsert = bronzeData
-        .filter(b => b.nomeMunicipio && b.uf && !munIdMap.has(`${b.nomeMunicipio.toUpperCase()}-${b.uf.toUpperCase()}`))
-        .map(b => ({
-          nome: b.nomeMunicipio!,
-          ufSigla: b.uf!.substring(0, 2).toUpperCase(),
-        }));
-
-      if (municipiosToInsert.length > 0) {
-        const uniqueMunMap = new Map<string, typeof municipiosToInsert[0]>();
-        for (const m of municipiosToInsert) uniqueMunMap.set(`${m.nome.toUpperCase()}-${m.ufSigla}`, m);
-        const uniqueMunicipios = Array.from(uniqueMunMap.values());
-
-        // Insere apenas os que realmente não existem
-        await silver_db.insert(municipios).values(uniqueMunicipios).onDuplicateKeyUpdate({ set: { id: sql`id` } });
-
-        // Atualiza o mapa com os recém-inseridos
-        const novosMunicipiosDb = await silver_db.select({ id: municipios.id, nome: municipios.nome, ufSigla: municipios.ufSigla })
-          .from(municipios)
-          .where(inArray(municipios.nome, uniqueMunicipios.map(m => m.nome)));
-
-        novosMunicipiosDb.forEach(m => munIdMap.set(`${m.nome.toUpperCase()}-${m.ufSigla.toUpperCase()}`, m.id));
-      }
 
       // 4. Dimensão Pessoas Físicas
       const cpfsLote = [...new Set(bronzeData.map(b => formatCpf(b.cpfFavorecido)).filter(Boolean) as string[])];

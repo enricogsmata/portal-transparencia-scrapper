@@ -9,9 +9,7 @@ import {
     gruposDespesa,
     elementosDespesa,
     modalidadesAplicacao,
-    execucaoDespesas,
-    municipios,
-    estados
+    execucaoDespesas
 } from '../../../database/silver_schema.js';
 import { new_logger } from '../../../services/logs.js';
 import { parseDecimal } from '../shared/formatters.js';
@@ -65,7 +63,7 @@ export async function processExecucaoDespesa() {
             if (ugToUpsert.length > 0) {
                 await silver_db.insert(unidadesGestoras)
                     .values(ugToUpsert)
-                    .onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+                    .onDuplicateKeyUpdate({ set: { id: sql`id` } });
             }
 
             const ugsDb = ugToUpsert.length > 0

@@ -1,16 +1,15 @@
-import { sql, inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Bpc } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
-  municipios,
   pessoasFisicas,
   programasSociais
 } from '../../../database/silver_schema.js';
-import { parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
+import { parseDecimal } from '../shared/formatters.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -43,20 +42,14 @@ export async function processBpc() {
   log.info('Iniciando processamento do módulo BPC (Benefício de Prestação Continuada)');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'BPC',
-        nome: 'Benefício de Prestação Continuada',
-        descricao: 'Benefício de Prestação Continuada (BPC/LOAS)',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'BPC'));
+
+    if (!programaDb) {
+      throw new Error('Programa social BPC não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 
@@ -74,38 +67,6 @@ export async function processBpc() {
       }
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela bpc');
-
-      // 3. Dimensão Municípios (SIAFI)
-      const municipiosToUpsert = bronzeData
-        .filter((b) => b.codigoMunicipioSiafi && b.uf)
-        .map((b) => ({
-          codigoSiafi: b.codigoMunicipioSiafi!,
-          nome: b.nomeMunicipio || 'NÃO INFORMADO',
-          ufSigla: b.uf!.substring(0, 2).toUpperCase(),
-        }));
-
-      if (municipiosToUpsert.length > 0) {
-        const uniqueMunMap = new Map<string, typeof municipiosToUpsert[0]>();
-        for (const m of municipiosToUpsert) uniqueMunMap.set(m.codigoSiafi, m);
-        const uniqueMunicipios = Array.from(uniqueMunMap.values());
-
-        await silver_db.insert(municipios)
-          .values(uniqueMunicipios)
-          .onDuplicateKeyUpdate({
-            set: {
-              nome: sql`VALUES(nome)`,
-              ufSigla: sql`VALUES(uf_sigla)`,
-            },
-          });
-      }
-
-      const codigosSiafi = [...new Set(municipiosToUpsert.map(m => m.codigoSiafi))];
-      const municipiosDb = codigosSiafi.length > 0
-        ? await silver_db.select({ id: municipios.id, codigoSiafi: municipios.codigoSiafi })
-          .from(municipios)
-          .where(inArray(municipios.codigoSiafi, codigosSiafi))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [m.codigoSiafi!, m.id]));
 
       // 4. Dimensão Pessoas Físicas (Beneficiários e Representantes Legais)
       const pessoasMap = new Map<string, { cpf: string, nis: string | null, nome: string, munId: number | null }>();

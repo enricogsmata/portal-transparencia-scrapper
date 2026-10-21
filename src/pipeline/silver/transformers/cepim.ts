@@ -52,7 +52,7 @@ export async function processCepim() {
           .values(uniquePjs)
           .onDuplicateKeyUpdate({
             set: {
-              razaoSocial: sql`VALUES(razao_social)`,
+              id: sql`id`,
             },
           });
       }
@@ -65,7 +65,7 @@ export async function processCepim() {
         : [];
 
       const cnpjIdMap = new Map(pjsExistentesDb.map(pj => [pj.cnpj, pj.id]));
-      
+
       // 3. Entidade de Sanções Administrativas
       const sancoesToInsert = bronzeData
         .map(b => {

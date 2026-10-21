@@ -1,13 +1,11 @@
-import { sql, inArray, and, eq } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Peti } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
   pessoasFisicas,
-  programasSociais,
-  municipios,
-  estados
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { formatAnoMes, parseDecimal, formatCpfByNis } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -24,20 +22,14 @@ export async function processPeti() {
   log.info('Iniciando processamento do módulo PETI (Programa de Erradicação do Trabalho Infantil)');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'PETI',
-        nome: 'PETI',
-        descricao: 'Programa de Erradicação do Trabalho Infantil',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'PETI'));
+
+    if (!programaDb) {
+      throw new Error('Programa social PETI não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 

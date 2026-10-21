@@ -1,13 +1,11 @@
-import { sql, inArray, and, eq } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { NovoBolsaFamilia } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
   pessoasFisicas,
-  programasSociais,
-  municipios,
-  estados
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { formatCpf, formatAnoMes, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -24,20 +22,14 @@ export async function processNovoBolsaFamilia() {
   log.info('Iniciando processamento do módulo Novo Bolsa Família');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'NOVO_BOLSA_FAMILIA',
-        nome: 'Novo Bolsa Família',
-        descricao: 'Pagamentos mensais do Novo Bolsa Família unificado',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'NOVO_BOLSA_FAMILIA'));
+
+    if (!programaDb) {
+      throw new Error('Programa social NOVO_BOLSA_FAMILIA não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 

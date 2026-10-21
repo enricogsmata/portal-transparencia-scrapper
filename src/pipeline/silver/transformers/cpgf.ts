@@ -2,11 +2,11 @@ import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { CartaoPagamentoCpgf } from '../../../database/bronze_schema.js';
-import { 
-  cartaoPagamentoCpgf, 
-  unidadesGestoras, 
-  pessoasFisicas, 
-  pessoasJuridicas 
+import {
+  cartaoPagamentoCpgf,
+  unidadesGestoras,
+  pessoasFisicas,
+  pessoasJuridicas
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
@@ -55,9 +55,9 @@ export async function processCartaoPagamentoCpgf() {
       const ugsToUpsertMap = new Map<string, typeof unidadesGestoras.$inferInsert>();
       bronzeData.forEach((b) => {
         if (b.codigoUnidadeGestora) {
-          ugsToUpsertMap.set(b.codigoUnidadeGestora, { 
-            codigo: b.codigoUnidadeGestora, 
-            nome: b.nomeUnidadeGestora || 'NÃO INFORMADO' 
+          ugsToUpsertMap.set(b.codigoUnidadeGestora, {
+            codigo: b.codigoUnidadeGestora,
+            nome: b.nomeUnidadeGestora || 'NÃO INFORMADO'
           });
         }
       });
@@ -66,19 +66,19 @@ export async function processCartaoPagamentoCpgf() {
       if (ugsToUpsert.length > 0) {
         await silver_db.insert(unidadesGestoras)
           .values(ugsToUpsert)
-          .onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const ugsDb = ugsToUpsert.length > 0
         ? await silver_db.select({ id: unidadesGestoras.id, codigo: unidadesGestoras.codigo })
-            .from(unidadesGestoras)
-            .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
+          .from(unidadesGestoras)
+          .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map(u => u.codigo)))
         : [];
       const ugIdMap = new Map(ugsDb.map(ug => [ug.codigo, ug.id]));
 
       // 3. Dimensão Pessoas Físicas (Portadores e Favorecidos PF)
       const pfsToUpsertMap = new Map<string, typeof pessoasFisicas.$inferInsert>();
-      
+
       bronzeData.forEach(b => {
         const cpfPortador = formatCpf(b.cpfPortador);
         if (cpfPortador) {
@@ -101,16 +101,16 @@ export async function processCartaoPagamentoCpgf() {
           }
         }
       });
-      
+
       const pfToInsertList = Array.from(pfsToUpsertMap.values());
       const cpfsLote = pfToInsertList.map(p => p.cpf);
 
       const cpfsExistentesDb = cpfsLote.length > 0
         ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-            .from(pessoasFisicas)
-            .where(inArray(pessoasFisicas.cpf, cpfsLote))
+          .from(pessoasFisicas)
+          .where(inArray(pessoasFisicas.cpf, cpfsLote))
         : [];
-      
+
       const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
       const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
@@ -122,7 +122,7 @@ export async function processCartaoPagamentoCpgf() {
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
           .where(inArray(pessoasFisicas.cpf, pfToInsert.map(p => p.cpf)));
-        
+
         novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
       }
 
@@ -132,9 +132,9 @@ export async function processCartaoPagamentoCpgf() {
         if (getDocumentType(b.documentoFavorecido) === 'PJ') {
           const cnpj = formatCnpj(b.documentoFavorecido);
           if (cnpj) {
-            pjsToUpsertMap.set(cnpj, { 
-              cnpj, 
-              razaoSocial: b.nomeFavorecido || 'NÃO INFORMADO' 
+            pjsToUpsertMap.set(cnpj, {
+              cnpj,
+              razaoSocial: b.nomeFavorecido || 'NÃO INFORMADO'
             });
           }
         }
@@ -144,13 +144,13 @@ export async function processCartaoPagamentoCpgf() {
       if (pjsToUpsert.length > 0) {
         await silver_db.insert(pessoasJuridicas)
           .values(pjsToUpsert)
-          .onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const pjsDb = pjsToUpsert.length > 0
         ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj })
-            .from(pessoasJuridicas)
-            .where(inArray(pessoasJuridicas.cnpj, pjsToUpsert.map(p => p.cnpj)))
+          .from(pessoasJuridicas)
+          .where(inArray(pessoasJuridicas.cnpj, pjsToUpsert.map(p => p.cnpj)))
         : [];
       const pjIdMap = new Map(pjsDb.map(pj => [pj.cnpj, pj.id]));
 
@@ -160,10 +160,10 @@ export async function processCartaoPagamentoCpgf() {
           const unidadeGestoraId = b.codigoUnidadeGestora ? ugIdMap.get(b.codigoUnidadeGestora) : null;
           const cpfPortador = formatCpf(b.cpfPortador);
           const portadorId = cpfPortador ? cpfIdMap.get(cpfPortador) : null;
-          
+
           let favorecidoPfId = null;
           let favorecidoPjId = null;
-          
+
           const docType = getDocumentType(b.documentoFavorecido);
           if (docType === 'PF') {
             const cpfFavorecido = formatCpf(b.documentoFavorecido);
@@ -175,7 +175,7 @@ export async function processCartaoPagamentoCpgf() {
 
           const dataTransacao = parseDate(b.dataTransacao);
           const valorTransacao = parseDecimal(b.valorTransacao);
-          
+
           if (!unidadeGestoraId || !portadorId || !b.anoExtrato || !b.mesExtrato || !b.transacao || !dataTransacao || valorTransacao === null) return null;
 
           return {
@@ -197,7 +197,7 @@ export async function processCartaoPagamentoCpgf() {
         // para manter idempotência (pois a tabela não possui UK forte unindo todos os campos transacionais).
         const anoMesUgIds = pagamentosToInsert.map(p => `${p.anoExtrato}-${p.mesExtrato}-${p.unidadeGestoraId}`);
         const uniqueAnoMesUgIds = [...new Set(anoMesUgIds)];
-        
+
         for (const item of uniqueAnoMesUgIds) {
           const [ano, mes, ugId] = item.split('-');
           await silver_db.delete(cartaoPagamentoCpgf)

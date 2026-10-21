@@ -1,12 +1,11 @@
-import { sql, inArray, and, eq } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { SeguroDefeso } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
   pessoasFisicas,
-  programasSociais,
-  municipios
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { formatCpf, formatAnoMes, parseDecimal, formatCpfByNis } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -23,20 +22,14 @@ export async function processSeguroDefeso() {
   log.info('Iniciando processamento do módulo Seguro-Defeso');
 
   try {
-    // 1. Garantir existência do programa social
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'SEGURO_DEFESO',
-        nome: 'Seguro-Defeso',
-        descricao: 'Seguro-desemprego concedido a pescadores artesanais no período de defeso',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'SEGURO_DEFESO'));
+
+    if (!programaDb) {
+      throw new Error('Programa social SEGURO_DEFESO não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 

@@ -114,7 +114,7 @@ export async function processCeaf() {
           .values(uniquePjs)
           .onDuplicateKeyUpdate({
             set: {
-              razaoSocial: sql`VALUES(razao_social)`,
+              id: sql`id`,
             },
           });
       }

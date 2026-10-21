@@ -1,10 +1,9 @@
-import { sql, inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and, sql } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { AuxilioEmergencial } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
-  municipios,
   pessoasFisicas,
   programasSociais
 } from '../../../database/silver_schema.js';
@@ -29,20 +28,14 @@ export async function processAuxilioEmergencial() {
   log.info('Iniciando processamento do módulo Auxílio Emergencial');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'AUXILIO_EMERGENCIAL',
-        nome: 'Auxílio Emergencial',
-        descricao: 'Programa de concessões e parcelas do Auxílio Emergencial e extensões',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'AUXILIO_EMERGENCIAL'));
+
+    if (!programaDb) {
+      throw new Error('Programa social AUXILIO_EMERGENCIAL não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 
@@ -60,39 +53,6 @@ export async function processAuxilioEmergencial() {
       }
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela auxilio_emergencial');
-
-      // src/pipeline/silver/transformers/auxilio-emergencial.ts
-      // 3. Dimensão Municípios (IBGE)
-      const municipiosToUpsert = bronzeData
-        .filter((b) => b.codigoMunicipioIbge && b.uf)
-        .map((b) => ({
-          codigoIbge: b.codigoMunicipioIbge!,
-          nome: b.nomeMunicipio || 'NÃO INFORMADO',
-          ufSigla: b.uf!.substring(0, 2).toUpperCase(),
-        }));
-
-      if (municipiosToUpsert.length > 0) {
-        const uniqueMunMap = new Map<string, typeof municipiosToUpsert[0]>();
-        for (const m of municipiosToUpsert) uniqueMunMap.set(m.codigoIbge, m);
-        const uniqueMunicipios = Array.from(uniqueMunMap.values());
-
-        await silver_db.insert(municipios)
-          .values(uniqueMunicipios)
-          .onDuplicateKeyUpdate({
-            set: {
-              nome: sql`VALUES(nome)`,
-              ufSigla: sql`VALUES(uf_sigla)`,
-            },
-          });
-      }
-
-      const codigosIbge = [...new Set(municipiosToUpsert.map(m => m.codigoIbge))];
-      const municipiosDb = codigosIbge.length > 0
-        ? await silver_db.select({ id: municipios.id, codigoIbge: municipios.codigoIbge })
-          .from(municipios)
-          .where(inArray(municipios.codigoIbge, codigosIbge))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [m.codigoIbge!, m.id]));
 
       // 4. Dimensão Pessoas Físicas (Beneficiários e Responsáveis)
       const pessoasMap = new Map<string, { cpf: string, nis: string | null, nome: string }>();

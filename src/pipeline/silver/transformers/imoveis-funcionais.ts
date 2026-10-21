@@ -1,4 +1,4 @@
-import { sql, inArray, and, eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { 

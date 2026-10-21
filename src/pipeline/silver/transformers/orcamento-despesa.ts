@@ -55,7 +55,7 @@ export async function processOrcamentoDespesa() {
       if (uosToUpsert.length > 0) {
         await silver_db.insert(unidadesGestoras)
           .values(uosToUpsert)
-          .onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const uosDb = uosToUpsert.length > 0

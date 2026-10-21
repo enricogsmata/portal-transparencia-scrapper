@@ -11,9 +11,7 @@ import {
   renunciasFiscais, 
   empresasHabilitadas, 
   pessoasJuridicas, 
-  cnaes,
-  municipios,
-  estados
+  cnaes 
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -83,14 +81,7 @@ async function syncEmpresasDimensions(bronzeBatch: EmpresaBronzeItem[]): Promise
   if (pjsToUpsert.length > 0) {
     await silver_db.insert(pessoasJuridicas)
       .values(pjsToUpsert)
-      .onDuplicateKeyUpdate({
-        set: {
-          razaoSocial: sql`VALUES(razao_social)`,
-          nomeFantasia: sql`COALESCE(VALUES(nome_fantasia), pessoas_juridicas.nome_fantasia)`,
-          cnaeId: sql`COALESCE(VALUES(cnae_id), pessoas_juridicas.cnae_id)`,
-          municipioId: sql`COALESCE(VALUES(municipio_id), pessoas_juridicas.municipio_id)`,
-        },
-      });
+      .onDuplicateKeyUpdate({ set: { id: sql`id` } });
   }
 
   const pjsDb = pjsToUpsert.length > 0

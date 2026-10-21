@@ -1,12 +1,11 @@
-import { sql, inArray, and, eq } from 'drizzle-orm';
+import { inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { GarantiaSafra } from '../../../database/bronze_schema.js';
 import {
   beneficioPagamentos,
   pessoasFisicas,
-  programasSociais,
-  municipios
+  programasSociais
 } from '../../../database/silver_schema.js';
 import { formatAnoMes, formatCpfByNis, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -23,20 +22,14 @@ export async function processGarantiaSafra() {
   log.info('Iniciando processamento do módulo Garantia Safra');
 
   try {
-    // 1. Garantir existência do programa social (Dimensão Master)
-    await silver_db.insert(programasSociais)
-      .values({
-        codigo: 'GARANTIA_SAFRA',
-        nome: 'Garantia-Safra',
-        descricao: 'Benefício do Programa Garantia-Safra para agricultores familiares',
-      })
-      .onDuplicateKeyUpdate({
-        set: { nome: sql`VALUES(nome)` },
-      });
-
+    // 1. Resolução do programa social (Somente Leitura)
     const [programaDb] = await silver_db.select({ id: programasSociais.id })
       .from(programasSociais)
       .where(eq(programasSociais.codigo, 'GARANTIA_SAFRA'));
+
+    if (!programaDb) {
+      throw new Error('Programa social GARANTIA_SAFRA não cadastrado na dimensão programas_sociais.');
+    }
 
     const programaId = programaDb.id;
 
@@ -54,38 +47,6 @@ export async function processGarantiaSafra() {
       }
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela garantia_safra');
-
-      // 3. Dimensão Municípios (SIAFI)
-      const municipiosToUpsert = bronzeData
-        .filter((b) => b.codigoSiafiMunicipio && b.uf)
-        .map((b) => ({
-          codigoSiafi: b.codigoSiafiMunicipio!,
-          nome: b.nomeMunicipio || 'NÃO INFORMADO',
-          ufSigla: b.uf!.substring(0, 2).toUpperCase(),
-        }));
-
-      if (municipiosToUpsert.length > 0) {
-        const uniqueMunMap = new Map<string, typeof municipiosToUpsert[0]>();
-        for (const m of municipiosToUpsert) uniqueMunMap.set(m.codigoSiafi, m);
-        const uniqueMunicipios = Array.from(uniqueMunMap.values());
-
-        await silver_db.insert(municipios)
-          .values(uniqueMunicipios)
-          .onDuplicateKeyUpdate({
-            set: {
-              nome: sql`VALUES(nome)`,
-              ufSigla: sql`VALUES(uf_sigla)`,
-            },
-          });
-      }
-
-      const codigosSiafi = [...new Set(municipiosToUpsert.map(m => m.codigoSiafi))];
-      const municipiosDb = codigosSiafi.length > 0
-        ? await silver_db.select({ id: municipios.id, codigoSiafi: municipios.codigoSiafi })
-          .from(municipios)
-          .where(inArray(municipios.codigoSiafi, codigosSiafi))
-        : [];
-      const munIdMap = new Map(municipiosDb.map(m => [m.codigoSiafi!, m.id]));
 
       // 4. Dimensão Pessoas Físicas (Agricultores)
       // Como Garantia Safra pode trazer apenas o NIS, criamos o fallback de CPF

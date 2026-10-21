@@ -276,12 +276,7 @@ export async function processViagensPagamento() {
       if (ugsToUpsert.length > 0) {
         await silver_db.insert(unidadesGestoras)
           .values(ugsToUpsert)
-          .onDuplicateKeyUpdate({
-            set: {
-              nome: sql`VALUES(nome)`,
-              orgaoSubordinadoId: sql`COALESCE(VALUES(orgao_subordinado_id), unidades_gestoras.orgao_subordinado_id)`,
-            },
-          });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const ugsDb = ugsToUpsert.length > 0

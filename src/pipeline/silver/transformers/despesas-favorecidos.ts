@@ -6,9 +6,7 @@ import {
   despesasPagamentos,
   pessoasFisicas,
   pessoasJuridicas,
-  unidadesGestoras,
-  estados,
-  municipios
+  unidadesGestoras
 } from '../../../database/silver_schema.js';
 import { formatAnoMes, formatCnpj, formatCpf, getDocumentType, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
@@ -55,7 +53,7 @@ export async function processRecebimentoRecursosFavorecido() {
       if (ugsToUpsert.length > 0) {
         await silver_db.insert(unidadesGestoras)
           .values(ugsToUpsert)
-          .onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const ugsDb = ugsToUpsert.length > 0
@@ -88,7 +86,9 @@ export async function processRecebimentoRecursosFavorecido() {
       // Upsert PJ
       const pjToUpsert = Array.from(pjMap.values());
       if (pjToUpsert.length > 0) {
-        await silver_db.insert(pessoasJuridicas).values(pjToUpsert).onDuplicateKeyUpdate({ set: { razaoSocial: sql`VALUES(razao_social)` } });
+        await silver_db.insert(pessoasJuridicas)
+          .values(pjToUpsert)
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       // Insert PF

@@ -60,7 +60,7 @@ export async function processRecursosTransferidos() {
       if (ugsToUpsert.length > 0) {
         await silver_db.insert(unidadesGestoras)
           .values(ugsToUpsert)
-          .onDuplicateKeyUpdate({ set: { nome: sql`VALUES(nome)` } });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const ugsDb = ugsToUpsert.length > 0
@@ -135,12 +135,7 @@ export async function processRecursosTransferidos() {
       if (pjToUpsert.length > 0) {
         await silver_db.insert(pessoasJuridicas)
           .values(pjToUpsert)
-          .onDuplicateKeyUpdate({
-            set: {
-              razaoSocial: sql`VALUES(razao_social)`,
-              municipioId: sql`COALESCE(VALUES(municipio_id), pessoas_juridicas.municipio_id)`,
-            },
-          });
+          .onDuplicateKeyUpdate({ set: { id: sql`id` } });
       }
 
       const pfToUpsert = Array.from(pfMap.values());
