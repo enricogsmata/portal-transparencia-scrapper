@@ -65,12 +65,12 @@ export async function runSilverOrchestrator() {
     { name: 'municipio-resolver', execute: () => MunicipioResolver.load() },
 
     // FASE 1: Cadastros Base e Dimensões Mestras Independentes
-    { name: 'favorecidos-pj-cnae', execute: processFavorecidosPjCnae },
-    { name: 'favorecidos-pj-natureza-juridica', execute: processFavorecidosPjNaturezaJuridica },
-    { name: 'favorecidos-pj-cnpj', execute: processFavorecidosPjCnpj },
+    //{ name: 'favorecidos-pj-cnae', execute: processFavorecidosPjCnae },
+    //{ name: 'favorecidos-pj-natureza-juridica', execute: processFavorecidosPjNaturezaJuridica },
+    //{ name: 'favorecidos-pj-cnpj', execute: processFavorecidosPjCnpj },
 
     // FASE 2: Estrutura Institucional, Gestão e Orçamento
-    { name: 'orcamento-despesa', execute: processOrcamentoDespesa },
+    //{ name: 'orcamento-despesa', execute: processOrcamentoDespesa },
     { name: 'receitas', execute: processReceitas },
     { name: 'despesas-execucao', execute: processExecucaoDespesa },
 

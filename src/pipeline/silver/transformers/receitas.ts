@@ -1,12 +1,12 @@
-import { sql, inArray, and } from 'drizzle-orm';
+import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Receitas } from '../../../database/bronze_schema.js';
-import { 
-  receitas, 
-  unidadesGestoras, 
-  orgaosSubordinados, 
-  orgaosSuperiores 
+import {
+  receitas,
+  unidadesGestoras,
+  orgaosSubordinados,
+  orgaosSuperiores
 } from '../../../database/silver_schema.js';
 import { parseDate, parseDecimal } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
@@ -36,13 +36,13 @@ export async function processReceitas() {
 
       log.info({ data: { offset, batchSize: bronzeData.length } }, 'Lote extraído da tabela receitas');
 
-      // 1. Dimensão Órgãos Superiores
       const osToUpsertMap = new Map<string, typeof orgaosSuperiores.$inferInsert>();
       bronzeData.forEach((b) => {
         if (b.codigoOrgaoSuperior) {
           osToUpsertMap.set(b.codigoOrgaoSuperior, {
             codigo: b.codigoOrgaoSuperior,
             nome: b.nomeOrgaoSuperior || 'NÃO INFORMADO',
+            sistemaOrigem: 'SIAFI',
           });
         }
       });
@@ -56,8 +56,8 @@ export async function processReceitas() {
 
       const osDb = osToUpsert.length > 0
         ? await silver_db.select({ id: orgaosSuperiores.id, codigo: orgaosSuperiores.codigo })
-            .from(orgaosSuperiores)
-            .where(inArray(orgaosSuperiores.codigo, osToUpsert.map((o) => o.codigo)))
+          .from(orgaosSuperiores)
+          .where(and(eq(orgaosSuperiores.sistemaOrigem, 'SIAFI'), inArray(orgaosSuperiores.codigo, osToUpsert.map((o) => o.codigo))))
         : [];
       const osIdMap = new Map(osDb.map((o) => [o.codigo, o.id]));
 
@@ -71,6 +71,7 @@ export async function processReceitas() {
               codigo: b.codigoOrgao,
               nome: b.nomeOrgao || 'NÃO INFORMADO',
               orgaoSuperiorId: superiorId,
+              sistemaOrigem: 'SIAFI',
             });
           }
         }
@@ -90,8 +91,8 @@ export async function processReceitas() {
 
       const osubDb = osubToUpsert.length > 0
         ? await silver_db.select({ id: orgaosSubordinados.id, codigo: orgaosSubordinados.codigo })
-            .from(orgaosSubordinados)
-            .where(inArray(orgaosSubordinados.codigo, osubToUpsert.map((o) => o.codigo)))
+          .from(orgaosSubordinados)
+          .where(and(eq(orgaosSubordinados.sistemaOrigem, 'SIAFI'), inArray(orgaosSubordinados.codigo, osubToUpsert.map((o) => o.codigo))))
         : [];
       const osubIdMap = new Map(osubDb.map((o) => [o.codigo, o.id]));
 
@@ -117,15 +118,15 @@ export async function processReceitas() {
 
       const ugsDb = ugsToUpsert.length > 0
         ? await silver_db.select({ id: unidadesGestoras.id, codigo: unidadesGestoras.codigo })
-            .from(unidadesGestoras)
-            .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map((u) => u.codigo)))
+          .from(unidadesGestoras)
+          .where(inArray(unidadesGestoras.codigo, ugsToUpsert.map((u) => u.codigo)))
         : [];
       const ugIdMap = new Map(ugsDb.map((ug) => [ug.codigo, ug.id]));
 
       // 4. Entidade Receitas
       const receitasToInsert = bronzeData
         .map((b) => {
-          const exercicio = b.anoExercicio || b.exercicioReferencia || (b.dataLancamento ? parseDate(b.dataLancamento)?.substring(0, 4) : null);
+          const exercicio = b.exercicio || b.exercicioReferencia || (b.dataLancamento ? parseDate(b.dataLancamento)?.substring(0, 4) : null);
           if (!exercicio) return null;
 
           const unidadeGestoraId = b.codigoUnidadeGestora ? ugIdMap.get(b.codigoUnidadeGestora) || null : null;
@@ -134,9 +135,9 @@ export async function processReceitas() {
             exercicio: exercicio.substring(0, 4),
             unidadeGestoraId,
             categoriaEconomica: b.categoriaEconomica || null,
-            origem: b.origemReceita || null,
+            origem: b.origem || null,
             detalhamento: b.detalhamento || null,
-            valorPrevisto: parseDecimal(b.valorPrevistoAtualizado) || '0',
+            valorPrevisto: parseDecimal(b.valorPrevisto) || '0',
             valorLancado: parseDecimal(b.valorLancado) || '0',
             valorRealizado: parseDecimal(b.valorRealizado) || '0',
             percentualRealizado: parseDecimal(b.percentualRealizado) || '0',
