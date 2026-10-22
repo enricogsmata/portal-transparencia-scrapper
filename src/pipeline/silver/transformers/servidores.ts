@@ -8,7 +8,8 @@ import {
   ServidoresAfastamentos,
   ServidoresHonorariosAdvocaticios,
   ServidoresJetons,
-  ServidoresRemuneracao
+  ServidoresRemuneracao,
+  ServidoresObservacoes
 } from '../../../database/bronze_schema.js';
 import { 
   servidores,
@@ -16,6 +17,7 @@ import {
   servidoresAfastamentos,
   servidoresJetons,
   servidoresHonorarios,
+  servidoresObservacoes,
   pessoasFisicas,
   orgaosSubordinados,
   orgaosSuperiores,
@@ -83,8 +85,8 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
   const codigosOs = osToUpsert.map(o => o.codigo);
   const osDb = codigosOs.length > 0
     ? await silver_db.select({ id: orgaosSuperiores.id, codigo: orgaosSuperiores.codigo })
-        .from(orgaosSuperiores)
-        .where(and(eq(orgaosSuperiores.sistemaOrigem, 'SIAPE'), inArray(orgaosSuperiores.codigo, codigosOs)))
+      .from(orgaosSuperiores)
+      .where(and(eq(orgaosSuperiores.sistemaOrigem, 'SIAPE'), inArray(orgaosSuperiores.codigo, codigosOs)))
     : [];
   const osIdMap = new Map(osDb.map(o => [o.codigo, o.id]));
 
@@ -124,40 +126,44 @@ async function syncServidoresDimensions(bronzeBatch: CadastroItem[]) {
   const codigosOsub = osubToUpsert.map(o => o.codigo);
   const osubDb = codigosOsub.length > 0
     ? await silver_db.select({ id: orgaosSubordinados.id, codigo: orgaosSubordinados.codigo })
-        .from(orgaosSubordinados)
-        .where(and(eq(orgaosSubordinados.sistemaOrigem, 'SIAPE'), inArray(orgaosSubordinados.codigo, codigosOsub)))
+      .from(orgaosSubordinados)
+      .where(and(eq(orgaosSubordinados.sistemaOrigem, 'SIAPE'), inArray(orgaosSubordinados.codigo, codigosOsub)))
     : [];
   const osubIdMap = new Map(osubDb.map(o => [o.codigo, o.id]));
 
   // 3. Pessoas Físicas
-  const pfsLote = bronzeBatch
-    .filter(b => formatCpf(b.cpf))
-    .map(b => ({
-      cpf: formatCpf(b.cpf)!,
-      nome: b.nome || 'NÃO INFORMADO',
-    }));
+  const pfsMap = new Map<string, typeof pessoasFisicas.$inferInsert>();
+  bronzeBatch.forEach(b => {
+    const cpf = formatCpf(b.cpf);
+    if (cpf && !pfsMap.has(cpf)) {
+      pfsMap.set(cpf, {
+        cpf,
+        nome: b.nome || 'NÃO INFORMADO',
+      });
+    }
+  });
 
-  const cpfsSet = [...new Set(pfsLote.map(p => p.cpf))];
+  const cpfsSet = Array.from(pfsMap.keys());
   const cpfsExistentesDb = cpfsSet.length > 0
     ? await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
-        .from(pessoasFisicas)
-        .where(inArray(pessoasFisicas.cpf, cpfsSet))
+      .from(pessoasFisicas)
+      .where(inArray(pessoasFisicas.cpf, cpfsSet))
     : [];
 
   const cpfIdMap = new Map(cpfsExistentesDb.map(pf => [pf.cpf, pf.id]));
   const cpfsExistentesSet = new Set(cpfsExistentesDb.map(pf => pf.cpf));
 
-  const pfToInsert = pfsLote.filter(p => !cpfsExistentesSet.has(p.cpf));
+  const pfToInsert = Array.from(pfsMap.values()).filter(p => !cpfsExistentesSet.has(p.cpf));
   if (pfToInsert.length > 0) {
-    const uniquePfMap = new Map<string, typeof pfToInsert[0]>();
-    for (const pf of pfToInsert) uniquePfMap.set(pf.cpf, pf);
-    const uniquePfs = Array.from(uniquePfMap.values());
-
-    await silver_db.insert(pessoasFisicas).values(uniquePfs);
+    for (let i = 0; i < pfToInsert.length; i += 1000) {
+      await silver_db.insert(pessoasFisicas)
+        .ignore()
+        .values(pfToInsert.slice(i, i + 1000));
+    }
 
     const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
       .from(pessoasFisicas)
-      .where(inArray(pessoasFisicas.cpf, uniquePfs.map(p => p.cpf)));
+      .where(inArray(pessoasFisicas.cpf, pfToInsert.map(p => p.cpf)));
 
     novosPfsDb.forEach(pf => cpfIdMap.set(pf.cpf, pf.id));
   }
@@ -369,8 +375,8 @@ export async function processServidoresAfastamentos() {
       const portaisLote = [...new Set(bronzeData.map(b => b.idServidorPortal).filter(Boolean) as string[])];
       const servidoresDb = portaisLote.length > 0
         ? await silver_db.select({ id: servidores.id, idServidorPortal: servidores.idServidorPortal })
-            .from(servidores)
-            .where(inArray(servidores.idServidorPortal, portaisLote))
+          .from(servidores)
+          .where(inArray(servidores.idServidorPortal, portaisLote))
         : [];
       const servidorIdMap = new Map(servidoresDb.map(s => [s.idServidorPortal, s.id]));
 
@@ -389,13 +395,33 @@ export async function processServidoresAfastamentos() {
         .filter(Boolean) as typeof servidoresAfastamentos.$inferInsert[];
 
       if (afastamentosToInsert.length > 0) {
-        const servidorIds = [...new Set(afastamentosToInsert.map(a => a.servidorId))];
+        const batchMap = new Map<string, typeof afastamentosToInsert[0]>();
+        for (const a of afastamentosToInsert) {
+          const key = `${a.servidorId}-${a.dataInicioAfastamento}`;
+          const existing = batchMap.get(key);
+          if (existing) {
+            if (!existing.dataFimAfastamento && a.dataFimAfastamento) {
+              existing.dataFimAfastamento = a.dataFimAfastamento;
+            }
+          } else {
+            batchMap.set(key, { ...a });
+          }
+        }
+        const uniqueAfastamentos = Array.from(batchMap.values());
+
+        const servidorIds = [...new Set(uniqueAfastamentos.map(a => a.servidorId))];
         await silver_db.delete(servidoresAfastamentos)
           .where(inArray(servidoresAfastamentos.servidorId, servidorIds));
 
-        log.info({ data: { count: afastamentosToInsert.length } }, 'Inserindo servidores_afastamentos');
-        for (let i = 0; i < afastamentosToInsert.length; i += 1000) {
-          await silver_db.insert(servidoresAfastamentos).values(afastamentosToInsert.slice(i, i + 1000));
+        log.info({ data: { count: uniqueAfastamentos.length } }, 'Inserindo servidores_afastamentos');
+        for (let i = 0; i < uniqueAfastamentos.length; i += 1000) {
+          await silver_db.insert(servidoresAfastamentos)
+            .values(uniqueAfastamentos.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                dataFimAfastamento: sql`COALESCE(VALUES(data_fim_afastamento), servidores_afastamentos.data_fim_afastamento)`,
+              },
+            });
         }
       }
 
@@ -409,7 +435,74 @@ export async function processServidoresAfastamentos() {
 
 export async function processServidoresObservacoes() {
   const log = logger.forMethod('processServidoresObservacoes');
-  log.info('Observações de servidores não possuem tabela silver correspondente mapeada. Pulando persistência.');
+  const BATCH_SIZE = 1000;
+  let offset = 0;
+  let hasMore = true;
+
+  log.info('Iniciando processamento de Observações de Servidores');
+
+  try {
+    while (hasMore) {
+      const bronzeData = await bronze_db.select()
+        .from(ServidoresObservacoes)
+        .limit(BATCH_SIZE)
+        .offset(offset);
+
+      if (bronzeData.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      const portaisLote = [...new Set(bronzeData.map(b => b.idServidorPortal).filter(Boolean) as string[])];
+      const servidoresDb = portaisLote.length > 0
+        ? await silver_db.select({ id: servidores.id, idServidorPortal: servidores.idServidorPortal })
+            .from(servidores)
+            .where(inArray(servidores.idServidorPortal, portaisLote))
+        : [];
+      const servidorIdMap = new Map(servidoresDb.map(s => [s.idServidorPortal, s.id]));
+
+      const observacoesToInsert = bronzeData
+        .map(b => {
+          const servidorId = b.idServidorPortal ? servidorIdMap.get(b.idServidorPortal) : null;
+          const ano = b.ano?.trim();
+          const mes = b.mes?.trim().padStart(2, '0');
+          const observacao = b.observacao?.trim();
+
+          if (!servidorId || !ano || !mes || !observacao) return null;
+
+          return {
+            servidorId,
+            ano: ano.substring(0, 4),
+            mes: mes.substring(0, 2),
+            observacao,
+          };
+        })
+        .filter(Boolean) as typeof servidoresObservacoes.$inferInsert[];
+
+      if (observacoesToInsert.length > 0) {
+        const batchMap = new Map<string, typeof observacoesToInsert[0]>();
+        for (const o of observacoesToInsert) {
+          const key = `${o.servidorId}-${o.ano}-${o.mes}-${o.observacao}`;
+          if (!batchMap.has(key)) {
+            batchMap.set(key, o);
+          }
+        }
+        const uniqueObservacoes = Array.from(batchMap.values());
+
+        log.info({ data: { count: uniqueObservacoes.length } }, 'Inserindo servidores_observacoes');
+        for (let i = 0; i < uniqueObservacoes.length; i += 1000) {
+          await silver_db.insert(servidoresObservacoes)
+            .ignore()
+            .values(uniqueObservacoes.slice(i, i + 1000));
+        }
+      }
+
+      offset += BATCH_SIZE;
+    }
+  } catch (error) {
+    log.error({ data: error }, 'Erro fatal durante o processamento de Observações de Servidores');
+    throw error;
+  }
 }
 
 export async function processServidoresHonorariosAdvocaticios() {
@@ -435,8 +528,8 @@ export async function processServidoresHonorariosAdvocaticios() {
       const portaisLote = [...new Set(bronzeData.map(b => b.idServidorPortal).filter(Boolean) as string[])];
       const servidoresDb = portaisLote.length > 0
         ? await silver_db.select({ id: servidores.id, idServidorPortal: servidores.idServidorPortal })
-            .from(servidores)
-            .where(inArray(servidores.idServidorPortal, portaisLote))
+          .from(servidores)
+          .where(inArray(servidores.idServidorPortal, portaisLote))
         : [];
       const servidorIdMap = new Map(servidoresDb.map(s => [s.idServidorPortal, s.id]));
 
@@ -510,8 +603,8 @@ export async function processServidoresJetons() {
       const portaisLote = [...new Set(bronzeData.map(b => b.idServidorPortal).filter(Boolean) as string[])];
       const servidoresDb = portaisLote.length > 0
         ? await silver_db.select({ id: servidores.id, idServidorPortal: servidores.idServidorPortal })
-            .from(servidores)
-            .where(inArray(servidores.idServidorPortal, portaisLote))
+          .from(servidores)
+          .where(inArray(servidores.idServidorPortal, portaisLote))
         : [];
       const servidorIdMap = new Map(servidoresDb.map(s => [s.idServidorPortal, s.id]));
 
@@ -585,8 +678,8 @@ export async function processServidoresRemuneracao() {
       const portaisLote = [...new Set(bronzeData.map(b => b.idServidorPortal).filter(Boolean) as string[])];
       const servidoresDb = portaisLote.length > 0
         ? await silver_db.select({ id: servidores.id, idServidorPortal: servidores.idServidorPortal })
-            .from(servidores)
-            .where(inArray(servidores.idServidorPortal, portaisLote))
+          .from(servidores)
+          .where(inArray(servidores.idServidorPortal, portaisLote))
         : [];
       const servidorIdMap = new Map(servidoresDb.map(s => [s.idServidorPortal, s.id]));
 

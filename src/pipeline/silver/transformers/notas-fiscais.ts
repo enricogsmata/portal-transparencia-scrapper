@@ -131,18 +131,18 @@ export async function processNotaFiscal() {
 
         return {
           chaveAcesso: b.chaveAcesso,
-          modelo: b.modelo || null,
-          serie: b.serie || null,
-          numero: b.numero || '0',
-          naturezaOperacao: b.naturezaOperacao || null,
+          modelo: b.modelo ? b.modelo.slice(0, 100) : null,
+          serie: b.serie ? b.serie.slice(0, 10) : null,
+          numero: b.numero ? b.numero.slice(0, 30) : '0',
+          naturezaOperacao: b.naturezaOperacao ? b.naturezaOperacao.slice(0, 255) : null,
           dataEmissao: parseDate(b.dataEmissao) || '1970-01-01',
           emitenteId,
           destinatarioPfId,
           destinatarioPjId,
           consumidorFinal: b.consumidorFinal === '1',
-          presencaComprador: b.presencaComprador || null,
+          presencaComprador: b.presencaComprador ? b.presencaComprador.slice(0, 50) : null,
           valorNotaFiscal: parseDecimal(b.valorNotaFiscal) || '0',
-          exercicioReferencia: b.exercicioReferencia || null
+          exercicioReferencia: b.exercicioReferencia ? b.exercicioReferencia.slice(0, 4) : null
         };
       }).filter(Boolean) as typeof notasFiscais.$inferInsert[];
 

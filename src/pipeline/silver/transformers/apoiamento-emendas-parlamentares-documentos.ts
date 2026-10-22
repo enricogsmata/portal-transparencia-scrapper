@@ -5,12 +5,12 @@ import { ApoiamentosEmendasParlamentares } from '../../../database/bronze_schema
 import { emendasApoiamentos, emendasParlamentares, pessoasFisicas } from '../../../database/silver_schema.js';
 import { formatCpf, parseDate, parseDecimal } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
 export async function processApoiamentosEmendasParlamentares() {
   const log = logger.forMethod('processApoiamentosEmendasParlamentares');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
   const processedEmendas = new Set<number>();

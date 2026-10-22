@@ -23,6 +23,7 @@ import {
 import { formatCnpj, getDocumentType, formatCpf, parseDecimal, parseDate, formatAnoMes } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -242,7 +243,6 @@ export async function processEmendasParlamentaresConvenios() {
 
 export async function processEmendasParlamentaresFavorecido() {
   const log = logger.forMethod('processEmendasParlamentaresFavorecido');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 

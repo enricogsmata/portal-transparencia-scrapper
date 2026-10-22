@@ -13,16 +13,20 @@ import { runCeafIngestion } from "./processors/ceaf.js";
 import { runCeisIngestion } from "./processors/ceis.js";
 import { runCepimIngestion } from "./processors/cepim.js";
 import { runCnepIngestion } from "./processors/cnep.js";
+import { runContratosHistoricoIngestion } from "./processors/contratos-historico.js";
 import { runContratosIngestion } from "./processors/contratos.js";
 import { runConveniosIngestion } from "./processors/convenios.js";
 import { runDespesasIngestion } from "./processors/despesas.js";
+import { runDiariasEPassagensIngestion } from "./processors/diarias-e-passagens.js";
 import { runEmendasParlamentaresDocumentosDespesaIngestion } from "./processors/emendas-parlamentares-documentos-despesa.js";
 import { runEmendasParlamentaresIngestion } from "./processors/emendas-parlamentares.js";
 import { runExecucaoDespesaIngestion } from "./processors/execucao-despesa.js";
+import { runExecucaoHistoricoIngestion } from "./processors/execucao-historico.js";
 import { runFavorecidosPjIngestion } from "./processors/favorecidos-pj.js";
 import { runGarantiaSafraIngestion } from "./processors/garantia-safra.js";
 import { runGasDoPovoIngestion } from "./processors/gas-do-povo.js";
 import { runImoveisFuncionaisIngestion } from "./processors/imoveis-funcionais.js";
+import { runLicitacoesHistoricoIngestion } from "./processors/licitacoes-historico.js";
 import { runLicitacoesIngestion } from "./processors/licitacoes.js";
 import { runNotasFiscaisIngestion } from "./processors/notas-fiscais.js";
 import { runNovoBolsaFamiliaIngestion } from "./processors/novo-bolsa-familia.js";
@@ -40,72 +44,80 @@ import { runViagensIngestion } from "./processors/viagens.js";
 
 export async function runProcessors() {
     // BENEFÍCIOS AO CIDADÃO
-    await runAuxilioBrasilIngestion();
-    await runAuxilioEmergencialIngestion();
-    await runAuxilioReconstrucaoIngestion();
-    await runBolsaPagamentosFamiliaIngestion();
-    await runBolsaFamiliaSaqueIngestion();
-    await runNovoBolsaFamiliaIngestion();
-    await runGarantiaSafraIngestion();
-    await runGasDoPovoIngestion();
-    await runSeguroDefesoIngestion();
-    await runPetiIngestion();
-    await runPeDeMeiaIngestion();
-    await runBpcIngestion();
+    //await runAuxilioBrasilIngestion();
+    //await runAuxilioEmergencialIngestion();
+    //await runAuxilioReconstrucaoIngestion();
+    //await runBolsaPagamentosFamiliaIngestion();
+    //await runBolsaFamiliaSaqueIngestion();
+    //await runNovoBolsaFamiliaIngestion();
+    //await runGarantiaSafraIngestion();
+    //await runGasDoPovoIngestion();
+    //await runSeguroDefesoIngestion();
+    //await runPetiIngestion();
+    //await runPeDeMeiaIngestion();
+    //await runBpcIngestion();
 
     // CARTÃO DE PAGAMENTO
-    await runCartaoPagamentoCpgfIngestion();
-    await runCartaoPagamentoCpccIngestion();
-    await runCartaoPagamentoDefesaCivilIngestion();
+    //await runCartaoPagamentoCpgfIngestion();
+    //await runCartaoPagamentoCpccIngestion();
+    //await runCartaoPagamentoDefesaCivilIngestion();
 
     // CNPJ
-    await runFavorecidosPjIngestion();
+    //await runFavorecidosPjIngestion();
 
     // CONVÊNIOS E INSTRUMENTOS CONGÊNERES
-    await runConveniosIngestion();
+    //await runConveniosIngestion();
 
     // DESPESAS PÚBLICAS
-    await runDespesasIngestion();
-    await runExecucaoDespesaIngestion();
-    await runRecursosTransferidosIngestion();
-    await runRecebimentoRecursosFavorecidoIngestion();
+    //await runDespesasIngestion();
+    //await runExecucaoDespesaIngestion();
+    //await runRecursosTransferidosIngestion();
+    //await runRecebimentoRecursosFavorecidoIngestion();
 
     // EMENDAS PARLAMENTARES
-    await runEmendasParlamentaresIngestion();
-    await runEmendasParlamentaresDocumentosDespesaIngestion();
-    await runApoiamentosEmendasParlamentaresIngestion();
+    //await runEmendasParlamentaresIngestion();
+    //await runEmendasParlamentaresDocumentosDespesaIngestion();
+    //await runApoiamentosEmendasParlamentaresIngestion();
 
     // IMÓVEIS FUNCIONAIS
-    await runImoveisFuncionaisIngestion();
+    //await runImoveisFuncionaisIngestion();
 
     // LICITAÇÕES E CONTRATOS
-    await runLicitacoesIngestion();
-    await runContratosIngestion();
+    //await runLicitacoesIngestion();
+    //await runContratosIngestion();
 
     // NOTAS FISCAIS
-    await runNotasFiscaisIngestion();
+    //await runNotasFiscaisIngestion();
 
     // ORÇAMENTO PÚBLICO
-    await runOrcamentoDespesaIngestion();
+    //await runOrcamentoDespesaIngestion();
     
     // RECEITAS PÚBLICAS
-    await runReceitasIngestion();
+    //await runReceitasIngestion();
     
     // RENÚNCIAS FISCAIS
-    await runRenunciasFiscaisIngestion();
+    //await runRenunciasFiscaisIngestion();
     
     // SANÇÕES
-    await runCeisIngestion();
-    await runCepimIngestion();
-    await runCnepIngestion();
-    await runAcordosLenienciaIngestion();
+    //await runCeisIngestion();
+    //await runCepimIngestion();
+    //await runCnepIngestion();
+    //await runAcordosLenienciaIngestion();
 
     // SERVIDORES
-    await runServidoresIngestion();
-    await runCeafIngestion();
-    await runPepIngestion();
+    //await runServidoresIngestion();
+    //await runCeafIngestion();
+    //await runPepIngestion();
 
     // VIAGENS A SERVIÇO
-    await runViagensIngestion();
+    //await runViagensIngestion();
+
+    // HISTORICO
+    //await runDiariasEPassagensIngestion();
+    await runLicitacoesHistoricoIngestion();
+    await runContratosHistoricoIngestion();
+    await runExecucaoHistoricoIngestion();
     return;
 }
+
+await runProcessors();

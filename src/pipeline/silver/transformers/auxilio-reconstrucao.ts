@@ -1,4 +1,4 @@
-import { inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and, sql } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { AuxilioReconstrucao } from '../../../database/bronze_schema.js';
@@ -86,7 +86,7 @@ export async function processAuxilioReconstrucao() {
         for (const pf of pfToInsert) uniquePfMap.set(pf.cpf, pf);
         const uniquePfs = Array.from(uniquePfMap.values());
 
-        await silver_db.insert(pessoasFisicas).values(uniquePfs);
+        await silver_db.insert(pessoasFisicas).ignore().values(uniquePfs);
 
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
@@ -96,6 +96,8 @@ export async function processAuxilioReconstrucao() {
       }
 
       // 5. Entidade de Pagamentos
+      const ocorrenciaMap = new Map<string, number>();
+
       const pagamentosToInsert = bronzeData
         .map(b => {
           const beneficiarioCpf = formatCpf(b.cpfFavorecido);
@@ -118,6 +120,10 @@ export async function processAuxilioReconstrucao() {
 
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
+          const key = `${programaId}|${beneficiarioId}|${mesCompetencia}|${valor}`;
+          const ocorrencia = (ocorrenciaMap.get(key) || 0) + 1;
+          ocorrenciaMap.set(key, ocorrencia);
+
           return {
             programaId,
             beneficiarioId,
@@ -125,6 +131,7 @@ export async function processAuxilioReconstrucao() {
             mesCompetencia,
             mesReferencia: mesCompetencia,
             valor,
+            ocorrencia,
             dataDisponibilizacao: dataPagamentoIso,
           };
         })
@@ -148,7 +155,14 @@ export async function processAuxilioReconstrucao() {
 
         log.info({ data: { count: pagamentosToInsert.length } }, 'Inserindo beneficio_pagamentos (Auxílio Reconstrução)');
         for (let i = 0; i < pagamentosToInsert.length; i += 1000) {
-          await silver_db.insert(beneficioPagamentos).values(pagamentosToInsert.slice(i, i + 1000));
+          await silver_db.insert(beneficioPagamentos)
+            .values(pagamentosToInsert.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                valor: sql`VALUES(valor)`,
+                dataDisponibilizacao: sql`COALESCE(VALUES(data_disponibilizacao), beneficio_pagamentos.data_disponibilizacao)`,
+              },
+            });
         }
       }
 

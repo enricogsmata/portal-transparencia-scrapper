@@ -13,12 +13,12 @@ import {
 import { formatCnpj, formatCpf, getDocumentType, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
 export async function processEmendasParlamentaresDocumentosDespesa() {
   const log = logger.forMethod('processEmendasParlamentaresDocumentosDespesa');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 

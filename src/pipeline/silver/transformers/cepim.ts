@@ -8,12 +8,12 @@ import {
 } from '../../../database/silver_schema.js';
 import { formatCnpj } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
 export async function processCepim() {
   const log = logger.forMethod('processCepim');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 

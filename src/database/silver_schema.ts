@@ -995,7 +995,7 @@ export const cartaoPagamentoCpcc = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     unidadeGestoraId: bigint('unidade_gestora_id', { mode: 'number' }).notNull().references(() => unidadesGestoras.id),
-    portadorId: bigint('portador_id', { mode: 'number' }).notNull().references(() => pessoasFisicas.id),
+    portadorId: bigint('portador_id', { mode: 'number' }).references(() => pessoasFisicas.id),
     favorecidoPjId: bigint('favorecido_pj_id', { mode: 'number' }).references(() => pessoasJuridicas.id),
     anoExtrato: char('ano_extrato', { length: 4 }).notNull(),
     mesExtrato: char('mes_extrato', { length: 2 }).notNull(),
@@ -1059,7 +1059,7 @@ export const notasFiscais = mysqlTable(
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
     chaveAcesso: char('chave_acesso', { length: 44 }).notNull().unique(),
-    modelo: varchar('modelo', { length: 10 }),
+    modelo: varchar('modelo', { length: 100 }),
     serie: varchar('serie', { length: 10 }),
     numero: varchar('numero', { length: 30 }).notNull(),
     naturezaOperacao: varchar('natureza_operacao', { length: 255 }),
@@ -1327,19 +1327,33 @@ export const servidoresObservacoes = mysqlTable(
   'servidores_observacoes',
   {
     id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
-    servidorId: bigint('servidor_id', { mode: 'number' }).notNull().references(() => servidores.id),
+    servidorId: bigint('servidor_id', { mode: 'number' }).notNull(),
     ano: char('ano', { length: 4 }).notNull(),
     mes: char('mes', { length: 2 }).notNull(),
     observacao: text('observacao').notNull(),
+    // Identidade = servidor + competência + texto (todas as partes NOT NULL). Gerada pelo banco.
     chaveNatural: chaveNaturalHash('servidor_id', 'ano', 'mes', 'observacao'),
     createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
     updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
   },
   (table) => [
     index('idx_serv_obs_servidor').on(table.servidorId),
+    index('idx_serv_obs_competencia').on(table.ano, table.mes),
     uniqueIndex('uq_serv_obs_chave_natural').on(table.chaveNatural),
+    foreignKey({
+      name: 'fk_so_servidor',
+      columns: [table.servidorId],
+      foreignColumns: [servidores.id],
+    }),
   ]
 );
+
+export const servidoresObservacoesRelations = relations(servidoresObservacoes, ({ one }) => ({
+  servidor: one(servidores, {
+    fields: [servidoresObservacoes.servidorId],
+    references: [servidores.id],
+  }),
+}));
 
 // ============================================================================
 // 14. BENEFÍCIOS AO CIDADÃO (CONSOLIDAÇÃO NORMALIZADA EM 3FN)

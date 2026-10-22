@@ -11,12 +11,12 @@ import {
 import { formatCpf, formatCnpj, formatAnoMes, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
 export async function processGasDoPovo() {
   const log = logger.forMethod('processGasDoPovo');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
@@ -83,7 +83,7 @@ export async function processGasDoPovo() {
         for (const pf of pfToInsert) uniquePfMap.set(pf.cpf, pf);
         const uniquePfs = Array.from(uniquePfMap.values());
 
-        await silver_db.insert(pessoasFisicas).values(uniquePfs);
+        await silver_db.insert(pessoasFisicas).ignore().values(uniquePfs);
 
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
@@ -112,6 +112,8 @@ export async function processGasDoPovo() {
       }
 
       // 6. Entidade de Pagamentos (Gás do Povo)
+      const ocorrenciaMap = new Map<string, number>();
+
       const pagamentosToInsert = bronzeData
         .map(b => {
           const cpf = formatCpf(b.cpfBeneficiario);
@@ -128,6 +130,10 @@ export async function processGasDoPovo() {
 
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
+          const key = `${programaId}|${beneficiarioId}|${mesCompetencia}|${valor}`;
+          const ocorrencia = (ocorrenciaMap.get(key) || 0) + 1;
+          ocorrenciaMap.set(key, ocorrencia);
+
           return {
             programaId,
             beneficiarioId,
@@ -135,6 +141,7 @@ export async function processGasDoPovo() {
             mesCompetencia,
             mesReferencia: mesCompetencia,
             valor,
+            ocorrencia,
             dataDisponibilizacao: parseDate(b.dataInicioVigenciaVale) || null,
             dataSaque: parseDate(b.dataRetiradaVale) || null,
           };
@@ -159,7 +166,15 @@ export async function processGasDoPovo() {
 
         log.info({ data: { count: pagamentosToInsert.length } }, 'Inserindo beneficio_pagamentos (Gás do Povo)');
         for (let i = 0; i < pagamentosToInsert.length; i += 1000) {
-          await silver_db.insert(beneficioPagamentos).values(pagamentosToInsert.slice(i, i + 1000));
+          await silver_db.insert(beneficioPagamentos)
+            .values(pagamentosToInsert.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                valor: sql`VALUES(valor)`,
+                dataDisponibilizacao: sql`COALESCE(VALUES(data_disponibilizacao), beneficio_pagamentos.data_disponibilizacao)`,
+                dataSaque: sql`COALESCE(VALUES(data_saque), beneficio_pagamentos.data_saque)`,
+              },
+            });
         }
       }
 

@@ -1,4 +1,4 @@
-import { inArray, eq, and } from 'drizzle-orm';
+import { inArray, eq, and, sql } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { Bpc } from '../../../database/bronze_schema.js';
@@ -10,6 +10,7 @@ import {
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
 import { parseDecimal } from '../shared/formatters.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -35,7 +36,6 @@ function parseConcedidoJudicialmente(valor?: string | null): boolean {
 
 export async function processBpc() {
   const log = logger.forMethod('processBpc');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
@@ -119,7 +119,7 @@ export async function processBpc() {
         }));
 
       if (pfToInsert.length > 0) {
-        await silver_db.insert(pessoasFisicas).values(pfToInsert);
+        await silver_db.insert(pessoasFisicas).ignore().values(pfToInsert);
 
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
@@ -129,11 +129,13 @@ export async function processBpc() {
       }
 
       // 5. Entidade de Pagamentos
+      const ocorrenciaMap = new Map<string, number>();
+
       const pagamentosToInsert = bronzeData
         .map(b => {
           const beneficiarioCpf = formatCpf(b.cpfBeneficiario);
           const responsavelCpf = formatCpf(b.cpfRepresentanteLegal);
-          
+
           const beneficiarioId = beneficiarioCpf ? cpfIdMap.get(beneficiarioCpf) : null;
           const responsavelId = responsavelCpf ? cpfIdMap.get(responsavelCpf) : null;
           const municipioId = MunicipioResolver.resolve({
@@ -141,12 +143,17 @@ export async function processBpc() {
             nome: b.nomeMunicipio,
             uf: b.uf,
           });
-          
+
           const valor = parseDecimal(b.valorParcela);
           const mesCompetencia = formatAnoMes(b.mesCompetencia);
           const mesReferencia = formatAnoMes(b.mesReferencia);
-          
+
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
+
+          const numeroBeneficio = b.numeroBeneficio || null;
+          const key = `${programaId}|${beneficiarioId}|${mesCompetencia}|${mesReferencia ?? ''}|${numeroBeneficio ?? ''}|${valor}`;
+          const ocorrencia = (ocorrenciaMap.get(key) || 0) + 1;
+          ocorrenciaMap.set(key, ocorrencia);
 
           return {
             programaId,
@@ -157,7 +164,8 @@ export async function processBpc() {
             mesReferencia,
             valor,
             concedidoJudicialmente: parseConcedidoJudicialmente(b.concedidoJudicialmente),
-            numeroBeneficio: b.numeroBeneficio || null,
+            numeroBeneficio,
+            ocorrencia,
           };
         })
         .filter(Boolean) as typeof beneficioPagamentos.$inferInsert[];
@@ -180,7 +188,15 @@ export async function processBpc() {
 
         log.info({ data: { count: pagamentosToInsert.length } }, 'Inserindo beneficio_pagamentos (BPC)');
         for (let i = 0; i < pagamentosToInsert.length; i += 1000) {
-          await silver_db.insert(beneficioPagamentos).values(pagamentosToInsert.slice(i, i + 1000));
+          await silver_db.insert(beneficioPagamentos)
+            .values(pagamentosToInsert.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                valor: sql`VALUES(valor)`,
+                concedidoJudicialmente: sql`COALESCE(VALUES(concedido_judicialmente), beneficio_pagamentos.concedido_judicialmente)`,
+                numeroBeneficio: sql`COALESCE(VALUES(numero_beneficio), beneficio_pagamentos.numero_beneficio)`,
+              },
+            });
         }
       }
 

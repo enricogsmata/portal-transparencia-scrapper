@@ -2,16 +2,16 @@
 import { sql, inArray, and, eq } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
-import { 
-  Licitacao, 
-  LicitacaoItem, 
-  LicitacaoParticipantes, 
-  LicitacaoEmpenhosRelacionados 
+import {
+  Licitacao,
+  LicitacaoItem,
+  LicitacaoParticipantes,
+  LicitacaoEmpenhosRelacionados
 } from '../../../database/bronze_schema.js';
-import { 
-  licitacoes, 
-  licitacaoItens, 
-  licitacaoParticipantes, 
+import {
+  licitacoes,
+  licitacaoItens,
+  licitacaoParticipantes,
   despesasEmpenhos,
   unidadesGestoras,
   pessoasJuridicas
@@ -49,9 +49,9 @@ export async function processLicitacao() {
       const ugsToUpsertMap = new Map<string, typeof unidadesGestoras.$inferInsert>();
       bronzeData.forEach((b) => {
         if (b.codigoUg) {
-          ugsToUpsertMap.set(b.codigoUg, { 
-            codigo: b.codigoUg, 
-            nome: b.nomeUg || 'NÃO INFORMADO' 
+          ugsToUpsertMap.set(b.codigoUg, {
+            codigo: b.codigoUg,
+            nome: b.nomeUg || 'NÃO INFORMADO'
           });
         }
       });
@@ -70,8 +70,8 @@ export async function processLicitacao() {
         if (!unidadeGestoraId || !b.numeroLicitacao || !b.modalidadeCompra || !b.objeto) return null;
 
         const municipioId = MunicipioResolver.resolve({
-            nome: b.municipio,
-            uf: b.uf
+          nome: b.municipio,
+          uf: b.uf
         });
 
         return {
@@ -97,7 +97,7 @@ export async function processLicitacao() {
         const existing = await silver_db.select({ id: licitacoes.id, numeroLicitacao: licitacoes.numeroLicitacao })
           .from(licitacoes)
           .where(inArray(licitacoes.numeroLicitacao, uniqueBatch.map(l => l.numeroLicitacao)));
-        
+
         const existingMap = new Map(existing.map(l => [l.numeroLicitacao, l.id]));
         const toInsert: typeof licitacoes.$inferInsert[] = [];
         const toUpdate: (typeof licitacoes.$inferInsert & { id: number })[] = [];
@@ -155,10 +155,10 @@ export async function processLicitacaoItem() {
       }
 
       const numerosLote = [...new Set(bronzeData.map(b => b.numeroLicitacao).filter(Boolean) as string[])];
-      const licitacoesDb = numerosLote.length > 0 
+      const licitacoesDb = numerosLote.length > 0
         ? await silver_db.select({ id: licitacoes.id, numeroLicitacao: licitacoes.numeroLicitacao })
-            .from(licitacoes)
-            .where(inArray(licitacoes.numeroLicitacao, numerosLote))
+          .from(licitacoes)
+          .where(inArray(licitacoes.numeroLicitacao, numerosLote))
         : [];
       const licitacaoIdMap = new Map(licitacoesDb.map(l => [l.numeroLicitacao, l.id]));
 
@@ -178,9 +178,9 @@ export async function processLicitacaoItem() {
         const existing = await silver_db.select({ licitacaoId: licitacaoItens.licitacaoId, codigoItemCompra: licitacaoItens.codigoItemCompra })
           .from(licitacaoItens)
           .where(inArray(licitacaoItens.licitacaoId, licitacaoIds));
-        
+
         const existingSet = new Set(existing.map(i => `${i.licitacaoId}-${i.codigoItemCompra}`));
-        
+
         const toInsertMap = new Map<string, typeof licitacaoItens.$inferInsert>();
         for (const i of itensToInsert) {
           const key = `${i.licitacaoId}-${i.codigoItemCompra}`;
@@ -188,7 +188,7 @@ export async function processLicitacaoItem() {
             toInsertMap.set(key, i); // Unicidade do lote
           }
         }
-        
+
         const toInsert = Array.from(toInsertMap.values());
         if (toInsert.length > 0) {
           log.info({ data: { count: toInsert.length } }, 'Inserindo itens de licitação');
@@ -231,9 +231,9 @@ export async function processLicitacaoParticipantes() {
       bronzeData.forEach((b) => {
         const cnpj = formatCnpj(b.cnpjParticipante);
         if (cnpj) {
-          pjsToUpsertMap.set(cnpj, { 
-            cnpj, 
-            razaoSocial: b.nomeParticipante || 'NÃO INFORMADO' 
+          pjsToUpsertMap.set(cnpj, {
+            cnpj,
+            razaoSocial: b.nomeParticipante || 'NÃO INFORMADO'
           });
         }
       });
@@ -247,25 +247,25 @@ export async function processLicitacaoParticipantes() {
 
       const pjsDb = pjsToUpsert.length > 0
         ? await silver_db.select({ id: pessoasJuridicas.id, cnpj: pessoasJuridicas.cnpj })
-            .from(pessoasJuridicas)
-            .where(inArray(pessoasJuridicas.cnpj, pjsToUpsert.map(p => p.cnpj)))
+          .from(pessoasJuridicas)
+          .where(inArray(pessoasJuridicas.cnpj, pjsToUpsert.map(p => p.cnpj)))
         : [];
       const pjIdMap = new Map(pjsDb.map(pj => [pj.cnpj, pj.id]));
 
       // 2. Licitações e Itens
       const numerosLote = [...new Set(bronzeData.map(b => b.numeroLicitacao).filter(Boolean) as string[])];
-      const licitacoesDb = numerosLote.length > 0 
+      const licitacoesDb = numerosLote.length > 0
         ? await silver_db.select({ id: licitacoes.id, numeroLicitacao: licitacoes.numeroLicitacao })
-            .from(licitacoes)
-            .where(inArray(licitacoes.numeroLicitacao, numerosLote))
+          .from(licitacoes)
+          .where(inArray(licitacoes.numeroLicitacao, numerosLote))
         : [];
       const licitacaoIdMap = new Map(licitacoesDb.map(l => [l.numeroLicitacao, l.id]));
 
       const licitacaoIds = Array.from(licitacaoIdMap.values());
-      const itensDb = licitacaoIds.length > 0 
+      const itensDb = licitacaoIds.length > 0
         ? await silver_db.select({ id: licitacaoItens.id, licitacaoId: licitacaoItens.licitacaoId, codigoItemCompra: licitacaoItens.codigoItemCompra })
-            .from(licitacaoItens)
-            .where(inArray(licitacaoItens.licitacaoId, licitacaoIds))
+          .from(licitacaoItens)
+          .where(inArray(licitacaoItens.licitacaoId, licitacaoIds))
         : [];
       const itemIdMap = new Map(itensDb.map(i => [`${i.licitacaoId}-${i.codigoItemCompra}`, i.id]));
 
@@ -291,13 +291,30 @@ export async function processLicitacaoParticipantes() {
       }).filter(Boolean) as typeof licitacaoParticipantes.$inferInsert[];
 
       if (participantesToInsert.length > 0) {
-        // Garantindo idempotência excluindo do banco os participantes do lote atual por licitação
-        const licIdsLote = [...new Set(participantesToInsert.map(p => p.licitacaoId))];
+        const batchMap = new Map<string, typeof participantesToInsert[0]>();
+        for (const p of participantesToInsert) {
+          const key = `${p.licitacaoId}|${p.licitacaoItemId ?? 0}|${p.participanteId}`;
+          const existing = batchMap.get(key);
+          if (existing) {
+            if (p.flagVencedor) existing.flagVencedor = true;
+          } else {
+            batchMap.set(key, { ...p });
+          }
+        }
+        const uniqueParticipantes = Array.from(batchMap.values());
+
+        const licIdsLote = [...new Set(uniqueParticipantes.map(p => p.licitacaoId))];
         await silver_db.delete(licitacaoParticipantes).where(inArray(licitacaoParticipantes.licitacaoId, licIdsLote));
 
-        log.info({ data: { count: participantesToInsert.length } }, 'Inserindo participantes de licitação');
-        for (let i = 0; i < participantesToInsert.length; i += 1000) {
-          await silver_db.insert(licitacaoParticipantes).values(participantesToInsert.slice(i, i + 1000));
+        log.info({ data: { count: uniqueParticipantes.length } }, 'Inserindo participantes de licitação');
+        for (let i = 0; i < uniqueParticipantes.length; i += 1000) {
+          await silver_db.insert(licitacaoParticipantes)
+            .values(uniqueParticipantes.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                flagVencedor: sql`VALUES(flag_vencedor)`,
+              },
+            });
         }
       }
 
@@ -333,7 +350,7 @@ export async function processLicitacaoEmpenhosRelacionados() {
       // muitos dados obrigatórios que não existem nesta tabela isolada (como dataEmissao e exercicioReferencia obrigatórios em despesas_empenho, mas não sempre preenchidos aqui), 
       // a implementação abaixo tenta fazer um UPSERT parcial no que for possível ou reportar alerta de dado incompleto se o empenho não existir.
       // Em uma base normalizada 3FN unificada, esses registros serviriam para preencher a FK de licitacaoId no despesas_empenhos ou tabela associativa n:m.
-      
+
       log.warn('A extração "licitacao_empenhos_relacionados" apenas complementa tabelas existentes. Pulando rotina agressiva de insert para evitar inconsistência de NOT NULL na tabela mestre de empenhos.');
       // Opcionalmente, pode-se escrever a rotina de mapear e atualizar "despesas_empenhos" caso tenham campos licitacaoId definidos futuramente na entidade de empenhos.
 

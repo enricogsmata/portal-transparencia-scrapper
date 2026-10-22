@@ -8,12 +8,12 @@ import {
 } from '../../../database/silver_schema.js';
 import { formatCpf, parseDate } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
 export async function processPep() {
   const log = logger.forMethod('processPep');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 

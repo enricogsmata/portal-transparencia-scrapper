@@ -1,4 +1,4 @@
-import { inArray, and, eq } from 'drizzle-orm';
+import { inArray, and, eq, sql } from 'drizzle-orm';
 import { bronze_db } from '../../../database/bronze_connection.js';
 import { silver_db } from '../../../database/silver_connection.js';
 import { GarantiaSafra } from '../../../database/bronze_schema.js';
@@ -10,12 +10,12 @@ import {
 import { formatAnoMes, formatCpfByNis, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
 export async function processGarantiaSafra() {
   const log = logger.forMethod('processGarantiaSafra');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
@@ -91,7 +91,7 @@ export async function processGarantiaSafra() {
         for (const pf of pfToInsert) uniquePfMap.set(pf.cpf, pf);
         const uniquePfs = Array.from(uniquePfMap.values());
 
-        await silver_db.insert(pessoasFisicas).values(uniquePfs);
+        await silver_db.insert(pessoasFisicas).ignore().values(uniquePfs);
 
         const novosPfsDb = await silver_db.select({ id: pessoasFisicas.id, cpf: pessoasFisicas.cpf })
           .from(pessoasFisicas)
@@ -101,6 +101,8 @@ export async function processGarantiaSafra() {
       }
 
       // 5. Entidade de Pagamentos (Benefício)
+      const ocorrenciaMap = new Map<string, number>();
+
       const pagamentosToInsert = bronzeData
         .map(b => {
           if (!b.nisBeneficiario) return null;
@@ -120,6 +122,10 @@ export async function processGarantiaSafra() {
 
           if (!beneficiarioId || !municipioId || !mesCompetencia || valor === null) return null;
 
+          const key = `${programaId}|${beneficiarioId}|${mesCompetencia}|${mesReferencia ?? ''}|${valor}`;
+          const ocorrencia = (ocorrenciaMap.get(key) || 0) + 1;
+          ocorrenciaMap.set(key, ocorrencia);
+
           return {
             programaId,
             beneficiarioId,
@@ -127,6 +133,7 @@ export async function processGarantiaSafra() {
             mesCompetencia,
             mesReferencia,
             valor,
+            ocorrencia,
           };
         })
         .filter(Boolean) as typeof beneficioPagamentos.$inferInsert[];
@@ -149,7 +156,13 @@ export async function processGarantiaSafra() {
 
         log.info({ data: { count: pagamentosToInsert.length } }, 'Inserindo beneficio_pagamentos (Garantia Safra)');
         for (let i = 0; i < pagamentosToInsert.length; i += 1000) {
-          await silver_db.insert(beneficioPagamentos).values(pagamentosToInsert.slice(i, i + 1000));
+          await silver_db.insert(beneficioPagamentos)
+            .values(pagamentosToInsert.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                valor: sql`VALUES(valor)`,
+              },
+            });
         }
       }
 

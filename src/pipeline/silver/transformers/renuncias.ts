@@ -16,6 +16,7 @@ import {
 import { formatCnpj, parseDate, parseDecimal } from '../shared/formatters.js';
 import { MunicipioResolver } from '../shared/municipio-resolver.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -95,7 +96,6 @@ async function syncEmpresasDimensions(bronzeBatch: EmpresaBronzeItem[]): Promise
 
 export async function processRenunciasFiscais() {
   const log = logger.forMethod('processRenunciasFiscais');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
@@ -166,7 +166,6 @@ export async function processRenunciasFiscais() {
 
 export async function processRenunciasFiscaisPorBeneficiario() {
   const log = logger.forMethod('processRenunciasFiscaisPorBeneficiario');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
@@ -237,7 +236,6 @@ export async function processRenunciasFiscaisPorBeneficiario() {
 
 export async function processEmpresasImunesOuIsentas() {
   const log = logger.forMethod('processEmpresasImunesOuIsentas');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
@@ -305,7 +303,6 @@ export async function processEmpresasImunesOuIsentas() {
 
 export async function processEmpresasHabilitadas() {
   const log = logger.forMethod('processEmpresasHabilitadas');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 

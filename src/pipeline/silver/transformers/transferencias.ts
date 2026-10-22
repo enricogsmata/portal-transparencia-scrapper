@@ -200,8 +200,20 @@ export async function processRecursosTransferidos() {
         .filter(Boolean) as typeof recursosTransferidos.$inferInsert[];
 
       if (transferenciasToInsert.length > 0) {
-        const anoMeses = [...new Set(transferenciasToInsert.map(t => t.anoMes))];
-        const ugIds = [...new Set(transferenciasToInsert.map(t => t.unidadeGestoraId).filter(Boolean) as number[])];
+        const batchMap = new Map<string, typeof transferenciasToInsert[0]>();
+        for (const t of transferenciasToInsert) {
+          const key = `${t.anoMes}|${t.tipoTransferencia}|${t.municipioId ?? 0}|${t.unidadeGestoraId ?? 0}|${t.acaoOrcamentariaId ?? 0}|${t.favorecidoPfId ?? 0}|${t.favorecidoPjId ?? 0}`;
+          const existing = batchMap.get(key);
+          if (existing) {
+            existing.valorTransferido = (Number(existing.valorTransferido) + Number(t.valorTransferido)).toFixed(2);
+          } else {
+            batchMap.set(key, { ...t });
+          }
+        }
+        const uniqueTransferencias = Array.from(batchMap.values());
+
+        const anoMeses = [...new Set(uniqueTransferencias.map(t => t.anoMes))];
+        const ugIds = [...new Set(uniqueTransferencias.map(t => t.unidadeGestoraId).filter(Boolean) as number[])];
 
         if (anoMeses.length > 0 && ugIds.length > 0) {
           await silver_db.delete(recursosTransferidos)
@@ -213,9 +225,15 @@ export async function processRecursosTransferidos() {
             );
         }
 
-        log.info({ data: { count: transferenciasToInsert.length } }, 'Inserindo recursos_transferidos');
-        for (let i = 0; i < transferenciasToInsert.length; i += 1000) {
-          await silver_db.insert(recursosTransferidos).values(transferenciasToInsert.slice(i, i + 1000));
+        log.info({ data: { count: uniqueTransferencias.length } }, 'Inserindo recursos_transferidos');
+        for (let i = 0; i < uniqueTransferencias.length; i += 1000) {
+          await silver_db.insert(recursosTransferidos)
+            .values(uniqueTransferencias.slice(i, i + 1000))
+            .onDuplicateKeyUpdate({
+              set: {
+                valorTransferido: sql`recursos_transferidos.valor_transferido + VALUES(valor_transferido)`,
+              },
+            });
         }
       }
 

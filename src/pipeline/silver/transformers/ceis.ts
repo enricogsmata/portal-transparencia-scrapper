@@ -9,6 +9,7 @@ import {
 } from '../../../database/silver_schema.js';
 import { formatCnpj, parseDate } from '../shared/formatters.js';
 import { new_logger } from '../../../services/logs.js';
+import { BATCH_SIZE } from '../shared/constants.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -37,7 +38,6 @@ function parseEsfera(val?: string | null): 'Federal' | 'Estadual' | 'Municipal' 
 
 export async function processCeis() {
   const log = logger.forMethod('processCeis');
-  const BATCH_SIZE = 1000;
   let offset = 0;
   let hasMore = true;
 
