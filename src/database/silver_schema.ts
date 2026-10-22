@@ -2385,3 +2385,70 @@ export const empresasImunesIsentas = mysqlTable(
     uniqueIndex('uq_imunes_nk').on(table.empresaId, table.anoCalendario, table.beneficioFiscal),
   ]
 );
+
+export const execucaoPorNatureza = mysqlTable(
+  'execucao_por_natureza',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    anoMes: varchar('ano_mes', { length: 7 }).notNull(), // 'YYYY-MM'
+    unidadeOrcamentariaId: bigint('unidade_orcamentaria_id', { mode: 'number' }),
+    // Código completo como veio (ex.: 33903000); as FKs abaixo são derivadas dele (lookup, sem criar dimensão).
+    codigoNaturezaDespesa: varchar('codigo_natureza_despesa', { length: 20 }).notNull(),
+    descricaoNaturezaDespesa: varchar('descricao_natureza_despesa', { length: 255 }),
+    categoriaDespesaId: bigint('categoria_despesa_id', { mode: 'number' }),
+    grupoDespesaId: bigint('grupo_despesa_id', { mode: 'number' }),
+    modalidadeAplicacaoId: bigint('modalidade_aplicacao_id', { mode: 'number' }),
+    elementoDespesaId: bigint('elemento_despesa_id', { mode: 'number' }),
+    valorLiquidado: decimal('valor_liquidado', { precision: 18, scale: 2 }).notNull(),
+    valorPago: decimal('valor_pago', { precision: 18, scale: 2 }).notNull(),
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    chaveNatural: chaveNaturalHash(
+      'ano_mes',
+      'IFNULL(unidade_orcamentaria_id, 0)',
+      'codigo_natureza_despesa',
+    ),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_epn_ano_mes').on(table.anoMes),
+    index('idx_epn_uo').on(table.unidadeOrcamentariaId),
+    index('idx_epn_natureza').on(table.codigoNaturezaDespesa),
+    uniqueIndex('uq_epn_chave_natural').on(table.chaveNatural),
+    foreignKey({ name: 'fk_epn_uo', columns: [table.unidadeOrcamentariaId], foreignColumns: [unidadesOrcamentarias.id] }),
+    foreignKey({ name: 'fk_epn_categoria', columns: [table.categoriaDespesaId], foreignColumns: [categoriasDespesa.id] }),
+    foreignKey({ name: 'fk_epn_grupo', columns: [table.grupoDespesaId], foreignColumns: [gruposDespesa.id] }),
+    foreignKey({ name: 'fk_epn_modalidade', columns: [table.modalidadeAplicacaoId], foreignColumns: [modalidadesAplicacao.id] }),
+    foreignKey({ name: 'fk_epn_elemento', columns: [table.elementoDespesaId], foreignColumns: [elementosDespesa.id] }),
+  ]
+);
+ 
+export const execucaoPorPrograma = mysqlTable(
+  'execucao_por_programa',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().autoincrement(),
+    anoMes: varchar('ano_mes', { length: 7 }).notNull(), // 'YYYY-MM'
+    unidadeOrcamentariaId: bigint('unidade_orcamentaria_id', { mode: 'number' }),
+    programaId: bigint('programa_id', { mode: 'number' }),
+    valorAtualizado: decimal('valor_atualizado', { precision: 18, scale: 2 }),
+    valorLiquidado: decimal('valor_liquidado', { precision: 18, scale: 2 }).notNull(),
+    valorPago: decimal('valor_pago', { precision: 18, scale: 2 }).notNull(),
+    exercicioReferencia: char('exercicio_referencia', { length: 4 }).notNull(),
+    chaveNatural: chaveNaturalHash(
+      'ano_mes',
+      'IFNULL(unidade_orcamentaria_id, 0)',
+      'IFNULL(programa_id, 0)',
+    ),
+    createdAt: timestamp('created_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+    updatedAt: timestamp('updated_at', { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  (table) => [
+    index('idx_epp_ano_mes').on(table.anoMes),
+    index('idx_epp_uo').on(table.unidadeOrcamentariaId),
+    index('idx_epp_programa').on(table.programaId),
+    uniqueIndex('uq_epp_chave_natural').on(table.chaveNatural),
+    foreignKey({ name: 'fk_epp_uo', columns: [table.unidadeOrcamentariaId], foreignColumns: [unidadesOrcamentarias.id] }),
+    foreignKey({ name: 'fk_epp_programa', columns: [table.programaId], foreignColumns: [programasOrcamentarios.id] }),
+  ]
+);
+ 

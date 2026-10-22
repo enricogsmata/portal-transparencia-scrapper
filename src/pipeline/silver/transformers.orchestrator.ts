@@ -44,6 +44,9 @@ import { processCnep } from './transformers/cnep.js';
 import { processCeaf } from './transformers/ceaf.js';
 import { processCepim } from './transformers/cepim.js';
 import { processRenunciasFiscais, processRenunciasFiscaisPorBeneficiario, processEmpresasImunesOuIsentas, processEmpresasHabilitadas } from './transformers/renuncias.js';
+import { processLicitacoesHistorico } from './transformers/licitacoes-historico.js';
+import { processExecucaoHistorico } from './transformers/execucao-historico.js';
+import { processContratosHistorico } from './transformers/contratos-historico.js';
 
 const logger = new_logger(import.meta.url);
 
@@ -57,111 +60,116 @@ export async function runSilverOrchestrator() {
 
   const tasks: TransformerTask[] = [
     // FASE 0: Seeds Estruturais de Infraestrutura (Pré-Orquestrador)
-    //{ name: 'siafi-municipios', execute: scrapeSiafiMunicipios },
-    //{ name: 'seed-estados', execute: generateEstadosSeed },
-    //{ name: 'seed-programas-sociais', execute: generateProgramasSociaisSeed },
-    //{ name: 'municipios-seed', execute: generateMunicipiosSeed },
+    { name: 'siafi-municipios', execute: scrapeSiafiMunicipios },
+    { name: 'seed-estados', execute: generateEstadosSeed },
+    { name: 'seed-programas-sociais', execute: generateProgramasSociaisSeed },
+    { name: 'municipios-seed', execute: generateMunicipiosSeed },
     { name: 'init-municipios', execute: initMunicipios },
     { name: 'municipio-resolver', execute: () => MunicipioResolver.load() },
 
     // FASE 1: Cadastros Base e Dimensões Mestras Independentes
-    //{ name: 'favorecidos-pj-cnae', execute: processFavorecidosPjCnae },
-    //{ name: 'favorecidos-pj-natureza-juridica', execute: processFavorecidosPjNaturezaJuridica },
-    //{ name: 'favorecidos-pj-cnpj', execute: processFavorecidosPjCnpj },
+    { name: 'favorecidos-pj-cnae', execute: processFavorecidosPjCnae },
+    { name: 'favorecidos-pj-natureza-juridica', execute: processFavorecidosPjNaturezaJuridica },
+    { name: 'favorecidos-pj-cnpj', execute: processFavorecidosPjCnpj },
 
     // FASE 2: Estrutura Institucional, Gestão e Orçamento
-    //{ name: 'orcamento-despesa', execute: processOrcamentoDespesa },
-    //{ name: 'receitas', execute: processReceitas },
-    //{ name: 'despesas-execucao', execute: processExecucaoDespesa },
+    { name: 'orcamento-despesa', execute: processOrcamentoDespesa },
+    { name: 'receitas', execute: processReceitas },
+    { name: 'despesas-execucao', execute: processExecucaoDespesa },
 
     // FASE 3: Ciclo Central da Despesa Federal (SIAFI)
-    //{ name: 'despesas-empenho', execute: processDespesasEmpenho },
-    //{ name: 'despesas-item-empenho', execute: processDespesasItemEmpenho },
-    //{ name: 'despesas-item-empenho-historico', execute: processDespesasItemEmpenhoHistorico },
-    //{ name: 'despesas-liquidacao', execute: processDespesasLiquidacao },
-    //{ name: 'despesas-liquidacao-empenhos-impactados', execute: processDespesasLiquidacaoEmpenhosImpactados },
-    //{ name: 'despesas-pagamento', execute: processDespesasPagamento },
-    //{ name: 'despesas-pagamento-empenhos-impactados', execute: processDespesasPagamentoEmpenhosImpactados },
-    //{ name: 'despesas-pagamento-favorecidos-finais', execute: processDespesasPagamentoFavorecidosFinais },
-    //{ name: 'despesas-pagamento-lista-bancos', execute: processDespesasPagamentoListaBancos },
-    //{ name: 'despesas-pagamento-lista-faturas', execute: processDespesasPagamentoListaFaturas },
-    //{ name: 'despesas-pagamento-lista-precatorios', execute: processDespesasPagamentoListaPrecatorios },
-    //{ name: 'recebimento-recursos-favorecido', execute: processRecebimentoRecursosFavorecido },
+    { name: 'despesas-empenho', execute: processDespesasEmpenho },
+    { name: 'despesas-item-empenho', execute: processDespesasItemEmpenho },
+    { name: 'despesas-item-empenho-historico', execute: processDespesasItemEmpenhoHistorico },
+    { name: 'despesas-liquidacao', execute: processDespesasLiquidacao },
+    { name: 'despesas-liquidacao-empenhos-impactados', execute: processDespesasLiquidacaoEmpenhosImpactados },
+    { name: 'despesas-pagamento', execute: processDespesasPagamento },
+    { name: 'despesas-pagamento-empenhos-impactados', execute: processDespesasPagamentoEmpenhosImpactados },
+    { name: 'despesas-pagamento-favorecidos-finais', execute: processDespesasPagamentoFavorecidosFinais },
+    { name: 'despesas-pagamento-lista-bancos', execute: processDespesasPagamentoListaBancos },
+    { name: 'despesas-pagamento-lista-faturas', execute: processDespesasPagamentoListaFaturas },
+    { name: 'despesas-pagamento-lista-precatorios', execute: processDespesasPagamentoListaPrecatorios },
+    { name: 'recebimento-recursos-favorecido', execute: processRecebimentoRecursosFavorecido },
 
     // FASE 4: Convênios e Transferências da União
-    //{ name: 'convenios', execute: processConvenios },
-    //{ name: 'convenios-ordens-bancarias', execute: processConveniosOrdensBancarias },
-    //{ name: 'recursos-transferidos', execute: processRecursosTransferidos },
+    { name: 'convenios', execute: processConvenios },
+    { name: 'convenios-ordens-bancarias', execute: processConveniosOrdensBancarias },
+    { name: 'recursos-transferidos', execute: processRecursosTransferidos },
 
     // FASE 5: Compras Públicas, Licitações e Notas Fiscais
-    //{ name: 'licitacao', execute: processLicitacao },
-    //{ name: 'licitacao-item', execute: processLicitacaoItem },
-    //{ name: 'licitacao-participantes', execute: processLicitacaoParticipantes },
-    //{ name: 'licitacao-empenhos-relacionados', execute: processLicitacaoEmpenhosRelacionados },
-    //{ name: 'contratos-compras', execute: processContratosCompras },
-    //{ name: 'contratos-item-compra', execute: processContratosItemCompra },
-    //{ name: 'contratos-termo-aditivo', execute: processContratosTermoAditivo },
-    //{ name: 'contratos-apostilamento', execute: processContratosApostilamento },
-    //{ name: 'nota-fiscal', execute: processNotaFiscal },
-    //{ name: 'nota-fiscal-item', execute: processNotaFiscalItem },
-    //{ name: 'nota-fiscal-evento', execute: processNotaFiscalEvento },
+    { name: 'licitacao', execute: processLicitacao },
+    { name: 'licitacao-item', execute: processLicitacaoItem },
+    { name: 'licitacao-participantes', execute: processLicitacaoParticipantes },
+    { name: 'licitacao-empenhos-relacionados', execute: processLicitacaoEmpenhosRelacionados },
+    { name: 'contratos-compras', execute: processContratosCompras },
+    { name: 'contratos-item-compra', execute: processContratosItemCompra },
+    { name: 'contratos-termo-aditivo', execute: processContratosTermoAditivo },
+    { name: 'contratos-apostilamento', execute: processContratosApostilamento },
+    { name: 'nota-fiscal', execute: processNotaFiscal },
+    { name: 'nota-fiscal-item', execute: processNotaFiscalItem },
+    { name: 'nota-fiscal-evento', execute: processNotaFiscalEvento },
 
     // FASE 6: Cartões de Pagamento e Viagens a Serviço
-    //{ name: 'cartao-pagamento-cpgf', execute: processCartaoPagamentoCpgf },
-    //{ name: 'cartao-pagamento-cpcc', execute: processCartaoPagamentoCpcc },
-    //{ name: 'cartao-pagamento-defesa-civil', execute: processCartaoPagamentoDefesaCivil },
-    //{ name: 'viagens-viagem', execute: processViagensViagem },
-    //{ name: 'viagens-trecho', execute: processViagensTrecho },
-    //{ name: 'viagens-passagem', execute: processViagensPassagem },
-    //{ name: 'viagens-pagamento', execute: processViagensPagamento },
+    { name: 'cartao-pagamento-cpgf', execute: processCartaoPagamentoCpgf },
+    { name: 'cartao-pagamento-cpcc', execute: processCartaoPagamentoCpcc },
+    { name: 'cartao-pagamento-defesa-civil', execute: processCartaoPagamentoDefesaCivil },
+    { name: 'viagens-viagem', execute: processViagensViagem },
+    { name: 'viagens-trecho', execute: processViagensTrecho },
+    { name: 'viagens-passagem', execute: processViagensPassagem },
+    { name: 'viagens-pagamento', execute: processViagensPagamento },
 
     // FASE 7: Recursos Humanos, Servidores Públicos e Imóveis Funcionais
-    //{ name: 'servidores-cadastro', execute: processServidoresCadastro },
-    //{ name: 'aposentados-cadastro', execute: processAposentadosCadastro },
-    //{ name: 'pensionistas-cadastro', execute: processPensionistasCadastro },
-    //{ name: 'servidores-remuneracao', execute: processServidoresRemuneracao },
-    //{ name: 'servidores-afastamentos', execute: processServidoresAfastamentos },
-    //{ name: 'servidores-jetons', execute: processServidoresJetons },
-    //{ name: 'servidores-honorarios-advocaticios', execute: processServidoresHonorariosAdvocaticios },
-    //{ name: 'servidores-observacoes', execute: processServidoresObservacoes },
-    //{ name: 'imoveis-funcionais', execute: processImoveisFuncionais },
-    //{ name: 'imoveis-funcionais-permissionarios', execute: processImoveisFuncionaisPermissionarios },
+    { name: 'servidores-cadastro', execute: processServidoresCadastro },
+    { name: 'aposentados-cadastro', execute: processAposentadosCadastro },
+    { name: 'pensionistas-cadastro', execute: processPensionistasCadastro },
+    { name: 'servidores-remuneracao', execute: processServidoresRemuneracao },
+    { name: 'servidores-afastamentos', execute: processServidoresAfastamentos },
+    { name: 'servidores-jetons', execute: processServidoresJetons },
+    { name: 'servidores-honorarios-advocaticios', execute: processServidoresHonorariosAdvocaticios },
+    { name: 'servidores-observacoes', execute: processServidoresObservacoes },
+    { name: 'imoveis-funcionais', execute: processImoveisFuncionais },
+    { name: 'imoveis-funcionais-permissionarios', execute: processImoveisFuncionaisPermissionarios },
 
     // FASE 8: Emendas Parlamentares e Vínculos
-    //{ name: 'emendas-parlamentares', execute: processEmendasParlamentares },
-    //{ name: 'emendas-parlamentares-convenios', execute: processEmendasParlamentaresConvenios },
-    //{ name: 'emendas-parlamentares-favorecido', execute: processEmendasParlamentaresFavorecido },
-    //{ name: 'apoiamentos-emendas-parlamentares', execute: processApoiamentosEmendasParlamentares },
-    //{ name: 'emendas-parlamentares-documentos-despesa', execute: processEmendasParlamentaresDocumentosDespesa },
+    { name: 'emendas-parlamentares', execute: processEmendasParlamentares },
+    { name: 'emendas-parlamentares-convenios', execute: processEmendasParlamentaresConvenios },
+    { name: 'emendas-parlamentares-favorecido', execute: processEmendasParlamentaresFavorecido },
+    { name: 'apoiamentos-emendas-parlamentares', execute: processApoiamentosEmendasParlamentares },
+    { name: 'emendas-parlamentares-documentos-despesa', execute: processEmendasParlamentaresDocumentosDespesa },
 
     // FASE 9: Programas Sociais e Benefícios ao Cidadão (Paralelizáveis)
-    //{ name: 'auxilio-brasil', execute: processAuxilioBrasil },
-    //{ name: 'auxilio-emergencial', execute: processAuxilioEmergencial },
-    //{ name: 'auxilio-reconstrucao', execute: processAuxilioReconstrucao },
-    //{ name: 'bolsa-familia-pagamentos', execute: processBolsaFamiliaPagamentos },
-    //{ name: 'bolsa-familia-saques', execute: processBolsaFamiliaSaque },
-    //{ name: 'novo-bolsa-familia', execute: processNovoBolsaFamilia },
-    //{ name: 'garantia-safra', execute: processGarantiaSafra },
-    //{ name: 'gas-do-povo', execute: processGasDoPovo },
-    //{ name: 'pe-de-meia', execute: processPeDeMeia },
-    //{ name: 'peti', execute: processPeti },
-    //{ name: 'bpc', execute: processBpc },
-    //{ name: 'seguro-defeso', execute: processSeguroDefeso },
+    { name: 'auxilio-brasil', execute: processAuxilioBrasil },
+    { name: 'auxilio-emergencial', execute: processAuxilioEmergencial },
+    { name: 'auxilio-reconstrucao', execute: processAuxilioReconstrucao },
+    { name: 'bolsa-familia-pagamentos', execute: processBolsaFamiliaPagamentos },
+    { name: 'bolsa-familia-saques', execute: processBolsaFamiliaSaque },
+    { name: 'novo-bolsa-familia', execute: processNovoBolsaFamilia },
+    { name: 'garantia-safra', execute: processGarantiaSafra },
+    { name: 'gas-do-povo', execute: processGasDoPovo },
+    { name: 'pe-de-meia', execute: processPeDeMeia },
+    { name: 'peti', execute: processPeti },
+    { name: 'bpc', execute: processBpc },
+    { name: 'seguro-defeso', execute: processSeguroDefeso },
 
     // FASE 10: Integridade, Sanções, PEP e Acordos de Leniência
-    //{ name: 'pep', execute: processPep },
-    //{ name: 'acordos-leniencia', execute: processAcordosLeniencia },
-    //{ name: 'acordos-leniencia-efeitos', execute: processAcordosLenienciaEfeitos },
-    //{ name: 'ceis', execute: processCeis },
-    //{ name: 'cnep', execute: processCnep },
-    //{ name: 'ceaf', execute: processCeaf },
-    //{ name: 'cepim', execute: processCepim },
+    { name: 'pep', execute: processPep },
+    { name: 'acordos-leniencia', execute: processAcordosLeniencia },
+    { name: 'acordos-leniencia-efeitos', execute: processAcordosLenienciaEfeitos },
+    { name: 'ceis', execute: processCeis },
+    { name: 'cnep', execute: processCnep },
+    { name: 'ceaf', execute: processCeaf },
+    { name: 'cepim', execute: processCepim },
 
     // FASE 11: Renúncias Fiscais e Desonerações Tributárias
-    //{ name: 'renuncias-fiscais', execute: processRenunciasFiscais },
-    //{ name: 'renuncias-fiscais-por-beneficiario', execute: processRenunciasFiscaisPorBeneficiario },
-    //{ name: 'empresas-imunes-ou-isentas', execute: processEmpresasImunesOuIsentas },
-    //{ name: 'empresas-habilitadas', execute: processEmpresasHabilitadas },
+    { name: 'renuncias-fiscais', execute: processRenunciasFiscais },
+    { name: 'renuncias-fiscais-por-beneficiario', execute: processRenunciasFiscaisPorBeneficiario },
+    { name: 'empresas-imunes-ou-isentas', execute: processEmpresasImunesOuIsentas },
+    { name: 'empresas-habilitadas', execute: processEmpresasHabilitadas },
+
+    // FASE 12: Arquivos Históricos
+    { name: 'licitacoes-historico', execute: processLicitacoesHistorico },
+    { name: 'execucao-historico', execute: processExecucaoHistorico },
+    { name: 'contratos-historico', execute: processContratosHistorico }
   ];
 
   log.info({ data: { totalTasks: tasks.length } }, 'Iniciando orquestração da camada Silver');
@@ -182,5 +190,3 @@ export async function runSilverOrchestrator() {
 
   log.info('Orquestração da camada Silver finalizada com sucesso');
 }
-
-await runSilverOrchestrator();

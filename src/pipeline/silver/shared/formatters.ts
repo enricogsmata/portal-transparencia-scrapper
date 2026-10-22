@@ -9,61 +9,76 @@ export function formatCnpj(cnpj?: string | null): string | null {
   return `${numbers.slice(0, 2)}.${numbers.slice(2, 5)}.${numbers.slice(5, 8)}/${numbers.slice(8, 12)}-${numbers.slice(12, 14)}`;
 }
 
+function formatValidDate(year: number, month: number, day: number): string | null {
+  if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
+    return null;
+  }
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 /**
  * Analisa e converte datas da camada bronze, tipicamente em DD/MM/YYYY
- * para o padrão de banco de dados relacional YYYY-MM-DD.
+ * para o padrão de banco de dados relacional YYYY-MM-DD com validação estrita.
  */
 export function parseDate(dateStr?: string | null): string | null {
   if (!dateStr) return null;
-  const trimmed = dateStr.trim();
-  if (!trimmed) return null;
+  const raw = dateStr.replace(/["']/g, '').trim().split(/[ T\r\n]/)[0];
+  if (!raw) return null;
 
-  const invertedMatch = trimmed.match(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/);
+  const invertedMatch = raw.match(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/);
   if (invertedMatch) {
     const [, m, c, y, d] = invertedMatch;
     if (c === '19' || c === '20') {
-      return `${c}${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      const res = formatValidDate(parseInt(`${c}${y}`, 10), parseInt(m, 10), parseInt(d, 10));
+      if (res) return res;
     }
   }
 
-  if (trimmed.includes('/')) {
-    const parts = trimmed.split('/');
+  if (raw.includes('/') || raw.includes('-')) {
+    const parts = raw.split(/[\/\-]/);
     if (parts.length === 3) {
-      if (parts[2].length === 4) {
-        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      }
-      if (parts[0].length === 4) {
-        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      const [p0, p1, p2] = parts;
+      if (p0.length === 4) {
+        const y = parseInt(p0, 10);
+        const m = parseInt(p1, 10);
+        const d = parseInt(p2, 10);
+        const standard = formatValidDate(y, m, d);
+        if (standard) return standard;
+        const swapped = formatValidDate(y, d, m);
+        if (swapped) return swapped;
+      } else if (p2.length === 4) {
+        const y = parseInt(p2, 10);
+        const d = parseInt(p0, 10);
+        const m = parseInt(p1, 10);
+        const br = formatValidDate(y, m, d);
+        if (br) return br;
+        const us = formatValidDate(y, d, m);
+        if (us) return us;
       }
     } else if (parts.length === 2 && parts[1].length === 4) {
-      return `${parts[1]}-${parts[0].padStart(2, '0')}-01`;
+      const m = parseInt(parts[0], 10);
+      const y = parseInt(parts[1], 10);
+      return formatValidDate(y, m, 1);
     }
   }
 
-  if (trimmed.includes('-')) {
-    const parts = trimmed.split('-');
-    if (parts.length === 3) {
-      if (parts[0].length === 4) {
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10);
-        const day = parseInt(parts[2], 10);
-        if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-          return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-        }
-      } else if (parts[2].length === 4) {
-        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      }
-    }
-  }
-
-  const digits = trimmed.replace(/\D/g, '');
+  const digits = raw.replace(/\D/g, '');
   if (digits.length === 8) {
-    if (digits.startsWith('19') || digits.startsWith('20')) {
-      return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
-    }
-    if (digits.slice(4).startsWith('19') || digits.slice(4).startsWith('20')) {
-      return `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
-    }
+    const dBr = parseInt(digits.slice(0, 2), 10);
+    const mBr = parseInt(digits.slice(2, 4), 10);
+    const yBr = parseInt(digits.slice(4, 8), 10);
+    const brRes = formatValidDate(yBr, mBr, dBr);
+    if (brRes) return brRes;
+
+    const yIso = parseInt(digits.slice(0, 4), 10);
+    const mIso = parseInt(digits.slice(4, 6), 10);
+    const dIso = parseInt(digits.slice(6, 8), 10);
+    const isoRes = formatValidDate(yIso, mIso, dIso);
+    if (isoRes) return isoRes;
   }
 
   return null;
