@@ -13,7 +13,7 @@ async function run() {
     
     await runProcessors();
 
-    //await runSilverOrchestrator();
+    await runSilverOrchestrator();
     return;
 }
 

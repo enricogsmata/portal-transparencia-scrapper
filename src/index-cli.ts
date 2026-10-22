@@ -3,6 +3,7 @@ import { select, confirm } from "@inquirer/prompts";
 import { runProcessors } from "./pipeline/bronze/processor_orchestrator.js";
 import { runScrapper } from "./pipeline/bronze/scrapper_orchestrator.js";
 import { new_logger } from "./services/logs.js";
+import { runSilverOrchestrator } from "./pipeline/silver/transformers.orchestrator.js";
 
 const logger = new_logger(import.meta.url);
 const program = new Command();
@@ -27,6 +28,8 @@ async function executePipeline(options: CliOptions) {
             log.info("Iniciando processadores...");
             await runProcessors();
         }
+
+        await runSilverOrchestrator();
 
         log.info("Processo finalizado com sucesso.");
     } catch (err) {
