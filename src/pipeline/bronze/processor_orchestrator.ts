@@ -1,3 +1,22 @@
+/**
+ * @file processor_orchestrator.ts
+ * @description Orquestrador da etapa de processamento (Camada Bronze).
+ *
+ * Responsabilidades:
+ *  - Coordenar a execução sequencial dos 44 processadores de ingestão.
+ *  - Cada processador varre os arquivos ZIP do seu módulo em `src/files/<módulo>/`,
+ *    descompacta em memória, converte encoding (Latin-1 → UTF-8 via iconv-lite),
+ *    parseia o CSV em streaming (csv-parser) e persiste os dados no banco Bronze
+ *    usando upsert idempotente (`INSERT ... ON DUPLICATE KEY UPDATE`).
+ *
+ * Padrões arquiteturais:
+ *  - Execução estritamente sequencial para controlar memória e conexões abertas.
+ *  - Batching de 2.000 registros por inserção (constante BATCH_SIZE nos processadores).
+ *  - Metadados de referência temporal (exercício, mês, dia) extraídos do nome do arquivo ZIP
+ *    e persistidos em todas as tabelas Bronze para rastreabilidade de período.
+ *
+ * Organização por domínio temático (comentada inline na função `runProcessors`).
+ */
 import { runAcordosLenienciaIngestion } from "./processors/acordos-leniencia.js";
 import { runApoiamentosEmendasParlamentaresIngestion } from "./processors/apoiamentos-emendas-parlamentares.js";
 import { runAuxilioBrasilIngestion } from "./processors/auxilio-brasil.js";
@@ -42,6 +61,16 @@ import { runSeguroDefesoIngestion } from "./processors/seguro-defeso.js";
 import { runServidoresIngestion } from "./processors/servidores.js";
 import { runViagensIngestion } from "./processors/viagens.js";
 
+/**
+ * Orquestra a execução sequencial de todos os processadores de ingestão da Camada Bronze.
+ *
+ * Cada grupo de processadores é delimitado por comentários de domínio temático.
+ * A ordem de execução não é restritiva a nível de Bronze (sem dependência entre tabelas),
+ * mas segue uma sequência lógica para facilitar o monitoramento e o diagnóstico de erros.
+ *
+ * Pré-requisito: os arquivos ZIP já devem estar em `src/files/<módulo>/`
+ * (etapa anterior: `runScrapper`).
+ */
 export async function runProcessors() {
     // BENEFÍCIOS AO CIDADÃO
     await runAuxilioBrasilIngestion();

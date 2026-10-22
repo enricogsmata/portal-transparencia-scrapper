@@ -1,3 +1,36 @@
+/**
+ * @file transformers.orchestrator.ts
+ * @description Orquestrador da Camada Silver — Normalização, Tipificação e Carga Relacional.
+ *
+ * Responsabilidades:
+ *  - Ler os dados brutos da Camada Bronze (MySQL)
+ *  - Aplicar transformações de qualidade: normalização de encoding, formatação de CNPJ/CPF/CEP,
+ *    conversão de datas (DD/MM/YYYY → YYYY-MM-DD), valores financeiros (pt-BR → SQL Decimal)
+ *  - Resolver chaves estrangeiras (múnicipios por SIAFI/IBGE/nome, órgãos, unidades orçamentárias)
+ *  - Persistir os dados transformados na Camada Silver com upsert idempotente
+ *
+ * Arquitetura de execução:
+ *  - 80+ tarefas organizadas em 12 fases com dependência explícita de ordem.
+ *  - Execução totalmente sequencial: dimensões mestras são sempre processadas
+ *    antes dos registros que delas dependem via FK.
+ *  - Cada tarefa é cronometrada individualmente para monitoramento de performance.
+ *  - Falha em qualquer tarefa encerra o pipeline com lançamento de erro.
+ *
+ * Fases do pipeline Silver:
+ *  FASE 0  — Seeds Estruturais de Infraestrutura (estados, municípios, programas sociais)
+ *  FASE 1  — Cadastros Base e Dimensões Mestras Independentes (CNPJ/Favorecidos PJ)
+ *  FASE 2  — Estrutura Institucional, Gestão e Orçamento
+ *  FASE 3  — Ciclo Central da Despesa Federal (SIAFI): Empenho → Liquidação → Pagamento
+ *  FASE 4  — Convênios e Transferências da União
+ *  FASE 5  — Compras Públicas, Licitações e Notas Fiscais
+ *  FASE 6  — Cartões de Pagamento e Viagens a Serviço
+ *  FASE 7  — Recursos Humanos, Servidores Públicos e Imóveis Funcionais
+ *  FASE 8  — Emendas Parlamentares e Vínculos
+ *  FASE 9  — Programas Sociais e Benefícios ao Cidadão
+ *  FASE 10 — Integridade, Sanções, PEP e Acordos de Leniência
+ *  FASE 11 — Renúncias Fiscais e Desonerações Tributárias
+ *  FASE 12 — Arquivos Históricos (antes de 2013)
+ */
 import { new_logger } from '../../services/logs.js';
 import { generateMunicipiosSeed } from '../bronze/processors/municipios-seed-generator.js';
 import { scrapeSiafiMunicipios } from '../bronze/processors/siafi-scrapper.js';
@@ -55,6 +88,16 @@ interface TransformerTask {
   execute: () => Promise<void>;
 }
 
+/**
+ * Ponto de entrada público do orquestrador Silver.
+ *
+ * Constrói uma lista ordenada de `TransformerTask` e executa cada tarefa sequencialmente.
+ * A ordem das tarefas é crítica: tarefas de fases iniciais criam os registros de dimensão
+ * (estados, municípios, órgãos, CNPJ) que servem de FK para as fases posteriores.
+ *
+ * Cada tarefa é cronometrada individualmente. Em caso de erro, o pipeline é abortado
+ * imediatamente com lançamento de exceção para o chamador (index.ts / index-cli.ts).
+ */
 export async function runSilverOrchestrator() {
   const log = logger.forMethod('runSilverOrchestrator');
 

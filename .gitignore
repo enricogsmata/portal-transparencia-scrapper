@@ -4,3 +4,5 @@ node_modules
 src/files/
 src/database/out/*
 script.ts
+bronze_to_silver_mapping.json
+src/database/bronze_to_silver_mapping.json
