@@ -129,17 +129,19 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
 
 export async function extractAndProcessZips(moduleName: string): Promise<number> {
     const log = logger.forMethod('extractAndProcessZips');
-    let dirPath = path.join(ZIP_FILES_DIRECTORY, 'historico-', moduleName);
+    const clean = moduleName.replace(/^(historico-)|(-historico)$/g, '');
+    const candidates = [
+        path.join(ZIP_FILES_DIRECTORY, moduleName),
+        path.join(ZIP_FILES_DIRECTORY, `historico-${clean}`),
+        path.join(ZIP_FILES_DIRECTORY, `${clean}-historico`),
+        path.join(ZIP_FILES_DIRECTORY, clean),
+    ];
+    let dirPath = candidates.find(d => fs.existsSync(d));
 
-    if (!fs.existsSync(dirPath)) {
-        const fallback = path.join(ZIP_FILES_DIRECTORY, 'licitacoes');
-        if (fs.existsSync(fallback)) {
-            dirPath = fallback;
-        } else {
-            const error = new Error(`Diretório não encontrado: ${dirPath}`);
-            log.error({ data: error }, 'Falha na leitura do diretório');
-            throw error;
-        }
+    if (!dirPath) {
+        const error = new Error(`Diretório não encontrado para o módulo: ${moduleName}`);
+        log.error({ data: error }, 'Falha na leitura do diretório');
+        throw error;
     }
 
     const files = fs.readdirSync(dirPath).filter(file => file.endsWith('.zip'));
@@ -177,10 +179,15 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
                         }
 
                         try {
-                            const upperFileName = entry.fileName.toUpperCase();
+                            const cleanFileName = normalize(entry.fileName);
                             let rowsCount = 0;
 
-                            if (upperFileName.includes('LICITACAO') || upperFileName.includes('LICITACOES')) {
+                            const isLicitacaoFile = (cleanFileName.includes('LICITACAO') || /LICITA/i.test(entry.fileName)) &&
+                                !/ITEM/i.test(entry.fileName) &&
+                                !/PARTICIPANTE/i.test(entry.fileName) &&
+                                !/EMPENHO/i.test(entry.fileName);
+
+                            if (isLicitacaoFile) {
                                 rowsCount = await processCsvStream(readStream, metadata);
                             } else {
                                 log.info({ data: { fileName: entry.fileName } }, 'Arquivo CSV ignorado');

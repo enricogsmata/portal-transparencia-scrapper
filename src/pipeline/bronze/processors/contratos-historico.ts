@@ -128,7 +128,7 @@ export async function processCsvStream(stream: NodeJS.ReadableStream, metadata: 
 
 export async function extractAndProcessZips(moduleName: string): Promise<number> {
     const log = logger.forMethod('extractAndProcessZips');
-    let dirPath = path.join(ZIP_FILES_DIRECTORY, 'historico-', moduleName);
+    let dirPath = path.join(ZIP_FILES_DIRECTORY, moduleName);
 
     if (!fs.existsSync(dirPath)) {
         const fallback = path.join(ZIP_FILES_DIRECTORY, 'contratos');
@@ -215,7 +215,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
     return totalRowsAllFiles;
 }
 
-export async function runContratosHistoricoIngestion(moduleName: string = 'contratos-historico') {
+export async function runContratosHistoricoIngestion(moduleName: string = 'historico-contratos') {
     const log = logger.forMethod('runContratosHistoricoHistoricoIngestion');
 
     try {

@@ -1888,7 +1888,7 @@ export const DiariasEPassagens = mysqlTable('diarias_e_passagens', {
     dadosAdicionais: text('dadosAdicionais'),
 });
 
-export const LicitacoesHistorico = mysqlTable('licitacoes', {
+export const LicitacoesHistorico = mysqlTable('licitacoes_historico', {
     id: serial('id').primaryKey(),
     codigoOrgaoSuperior: text('codigoOrgaoSuperior'),
     nomeOrgaoSuperior: text('nomeOrgaoSuperior'),
@@ -1916,7 +1916,7 @@ export const LicitacoesHistorico = mysqlTable('licitacoes', {
     dadosAdicionais: text('dadosAdicionais'),
 });
 
-export const ContratosHistorico = mysqlTable('contratos', {
+export const ContratosHistorico = mysqlTable('contratos_historico', {
     id: serial('id').primaryKey(),
     codigoOrgaoSuperior: text('codigoOrgaoSuperior'),
     nomeOrgaoSuperior: text('nomeOrgaoSuperior'),

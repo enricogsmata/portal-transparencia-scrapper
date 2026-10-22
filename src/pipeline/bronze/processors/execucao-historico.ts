@@ -141,7 +141,7 @@ async function processGenericStream(
 
 export async function extractAndProcessZips(moduleName: string): Promise<number> {
     const log = logger.forMethod('extractAndProcessZips');
-    let dirPath = path.join(ZIP_FILES_DIRECTORY, 'historico-', moduleName);
+    let dirPath = path.join(ZIP_FILES_DIRECTORY, moduleName);
 
     if (!fs.existsSync(dirPath)) {
         const fallbacks = [
@@ -247,7 +247,7 @@ export async function extractAndProcessZips(moduleName: string): Promise<number>
     return totalRowsAllFiles;
 }
 
-export async function runExecucaoHistoricoIngestion(moduleName: string = 'execucao-historico') {
+export async function runExecucaoHistoricoIngestion(moduleName: string = 'historico-execucao-orcamentaria') {
     const log = logger.forMethod('runExecucaoHistoricoIngestion');
 
     try {
